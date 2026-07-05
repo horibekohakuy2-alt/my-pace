@@ -176,7 +176,19 @@ ol.guide li { margin: 4px 0; }
     <div class="progress-bar"><div class="progress-fill" id="week-progress"></div></div>
     <h2>ToDoリスト</h2>
     <div class="card" id="week-todos"></div>
-    <p class="muted small">新しい週のプランは「連携」タブから取り込みます。</p>
+    <div class="card">
+      <div class="form-row"><input id="todo-text" placeholder="タスクを追加（例: TOEFL単語50個）"></div>
+      <div class="form-row">
+        <select id="todo-day">
+          <option value="">いつでも</option>
+          <option value="mon">月</option><option value="tue">火</option><option value="wed">水</option>
+          <option value="thu">木</option><option value="fri">金</option><option value="sat">土</option><option value="sun">日</option>
+        </select>
+        <input id="todo-min" type="number" placeholder="分（任意）">
+      </div>
+      <button class="btn small" id="todo-add">＋ タスクを追加</button>
+    </div>
+    <p class="muted small">ToDoはClaudeのプラン取り込み（連携タブ）でも、ここでの手動追加でもOK。</p>
   </section>
 
   <!-- ============ 時間割 ============ -->
@@ -446,11 +458,25 @@ function setProgress(done, total) {
   document.getElementById("today-progress").style.width = total ? Math.round(done / total * 100) + "%" : "0%";
   document.getElementById("today-progress-text").textContent = total ? done + " / " + total + " 完了" : "";
 }
-function todoRow(t) {
+function todoRow(t, deletable) {
   return '<div class="check-item' + (t.done ? " done" : "") + '">' +
     '<input type="checkbox" data-todo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
     "<label>" + esc(t.text) +
-    ' <span class="meta">' + esc(t.cat || "") + (t.min ? "・" + t.min + "分" : "") + "</span></label></div>";
+    ' <span class="meta">' + esc(t.cat || "") + (t.min ? "・" + t.min + "分" : "") + "</span></label>" +
+    (deletable === true ? '<button class="del-btn" data-tododel="' + t.id + '">✕</button>' : "") +
+    "</div>";
+}
+function bindTodoDeletes(root) {
+  root.querySelectorAll("[data-tododel]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      week.todos = week.todos.filter(function (x) { return String(x.id) !== b.dataset.tododel; });
+      Object.keys(slotManual).forEach(function (cell) {
+        slotManual[cell] = (slotManual[cell] || []).filter(function (id) { return String(id) !== b.dataset.tododel; });
+      });
+      save("week", week); save("slotManual", slotManual);
+      renderToday(); renderWeek(); renderTT();
+    });
+  });
 }
 function bindTodoChecks(root) {
   root.querySelectorAll("[data-todo]").forEach(function (cb) {
@@ -490,7 +516,7 @@ function renderWeek() {
   document.getElementById("week-range").textContent = week ? weekRangeText(week) : "";
   document.getElementById("week-goals").innerHTML = (week && week.goals && week.goals.length)
     ? week.goals.map(function (g) { return '<div class="goal-line">🎯 ' + esc(g) + "</div>"; }).join("")
-    : '<div class="empty">プラン未取り込み</div>';
+    : '<div class="empty">目標はClaudeのプラン取り込み時に自動で設定されます（連携タブ）</div>';
 
   const box = document.getElementById("week-todos");
   if (!week || !week.todos || !week.todos.length) {
@@ -507,14 +533,15 @@ function renderWeek() {
   ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].forEach(function (d) {
     const list = week.todos.filter(function (t) { return t.day === d; });
     if (!list.length) return;
-    html += '<div class="day-group"><h3>' + DAY_JA[d] + "曜</h3>" + list.map(todoRow).join("") + "</div>";
+    html += '<div class="day-group"><h3>' + DAY_JA[d] + "曜</h3>" + list.map(function (t) { return todoRow(t, true); }).join("") + "</div>";
   });
   const anytime = week.todos.filter(function (t) { return !t.day; });
   if (anytime.length) {
-    html += '<div class="day-group"><h3>いつでも枠</h3>' + anytime.map(todoRow).join("") + "</div>";
+    html += '<div class="day-group"><h3>いつでも枠</h3>' + anytime.map(function (t) { return todoRow(t, true); }).join("") + "</div>";
   }
   box.innerHTML = html;
   bindTodoChecks(box);
+  bindTodoDeletes(box);
 }
 
 // ============ 時間割 ============
@@ -569,7 +596,7 @@ function renderTT() {
           if (!t) return "";
           return '<label class="slot-task' + (t.done ? " done" : "") + '">' +
             '<input type="checkbox" data-slottodo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
-            "<span>" + esc(t.text) + (t.min ? "（" + t.min + "分）" : "") + "</span></label>";
+            "<span>" + esc(t.text) + "</span></label>";
         }).join("");
         return '<td data-cell="' + key + '">' + tasksHtml + "</td>";
       }).join("") + "</tr>";
@@ -724,6 +751,31 @@ document.getElementById("ev-add").addEventListener("click", function () {
   toast("予定を追加しました");
 });
 
+// ---- ToDoの手動追加 ----
+function mondayISO() {
+  const d = new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // 今週の月曜
+  return isoOf(d);
+}
+document.getElementById("todo-add").addEventListener("click", function () {
+  const text = document.getElementById("todo-text").value.trim();
+  if (!text) { toast("タスク名を入力してください"); return; }
+  if (!week) week = { weekStart: mondayISO(), goals: [], todos: [] };
+  week.todos.push({
+    id: Date.now(),
+    day: document.getElementById("todo-day").value || null,
+    text: text,
+    cat: "",
+    min: Number(document.getElementById("todo-min").value) || 0,
+    done: false,
+  });
+  save("week", week);
+  document.getElementById("todo-text").value = "";
+  document.getElementById("todo-min").value = "";
+  renderToday(); renderWeek(); renderTT();
+  toast("タスクを追加しました");
+});
+
 // ============ 連携 ============
 document.getElementById("import-btn").addEventListener("click", function () {
   const raw = document.getElementById("import-area").value.trim();
@@ -793,7 +845,7 @@ document.getElementById("prompt-btn").addEventListener("click", function () {
     '## 直近2週間の予定\n' + (upcoming || "- なし") + "\n\n" +
     '## 依頼内容\n' +
     '1. まず上記の時間割・予定・通学等を踏まえ、各曜日の学習可能時間を見積もって提示すること（学習可能時間は固定値ではなく時間割から変動する）\n' +
-    '2. 私と「今週の目標・やりたいこと」を相談すること\n' +
+    '2. 今週の目標（goals）は私に質問せず、Obsidianの記録（Projects/self-growth-roadmap.md・各分野のプラン・前週のレポート）と今週のToDo内容からあなたが考えて設定すること\n' +
     '3. Obsidianの Projects/self-growth-roadmap.md の優先順位・締切例外ルールを踏まえること\n' +
     '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数\n\n' +
     '出力例:\n' +
