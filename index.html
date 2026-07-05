@@ -103,6 +103,9 @@ table.tt td .nm { font-size: 11.5px; font-weight: bold; display: block; word-bre
 table.tt td .rm { font-size: 10px; color: var(--muted); display: block; }
 table.tt td.filled { background: var(--accent-soft); }
 .ptime { display: block; font-size: 9px; color: var(--muted); font-weight: normal; }
+.slot-task { display: flex; align-items: flex-start; gap: 3px; font-size: 9.5px; line-height: 1.3; text-align: left; padding: 1px 2px; cursor: pointer; }
+.slot-task input { width: 12px; height: 12px; margin-top: 1px; accent-color: var(--accent); flex-shrink: 0; }
+.slot-task.done span { text-decoration: line-through; color: var(--muted); }
 
 /* ---- calendar ---- */
 .cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
@@ -158,11 +161,11 @@ ol.guide li { margin: 4px 0; }
   <section class="view" id="view-today">
     <h2>今日の予定</h2>
     <div class="card" id="today-events"></div>
-    <h2>毎日の習慣</h2>
-    <div class="card" id="today-habits"></div>
     <h2>今日のToDo <span class="muted small" id="today-progress-text"></span></h2>
     <div class="progress-bar"><div class="progress-fill" id="today-progress"></div></div>
     <div class="card" id="today-todos"></div>
+    <h2>毎日の習慣</h2>
+    <div class="card" id="today-habits"></div>
   </section>
 
   <!-- ============ 週間 ============ -->
@@ -185,7 +188,7 @@ ol.guide li { margin: 4px 0; }
         <tbody id="tt-body"></tbody>
       </table>
     </div>
-    <p class="muted small">学期が変わったら（4月・6月・10月・12月）ここを更新する。</p>
+    <p class="muted small">1〜4限の空きコマには、今週のToDoが所要時間に合わせて自動で入る（白背景のまま表示）。コマをタップすると差し替え・授業登録ができ、チェックは「今日」「週間」とも連動する。学期が変わったら（4月・6月・10月・12月）授業を更新する。</p>
   </section>
 
   <!-- ============ カレンダー ============ -->
@@ -278,6 +281,21 @@ ol.guide li { margin: 4px 0; }
 
 <div class="toast" id="toast"></div>
 
+<!-- 空きコマのタスク選択モーダル -->
+<div class="modal-bg" id="slot-modal">
+  <div class="modal">
+    <h3 id="slot-modal-title">空きコマ</h3>
+    <p class="muted small">このコマ（90分）でやるタスクを選ぶ。合計90分以内が目安。</p>
+    <div id="slot-list" style="max-height:40vh;overflow-y:auto;margin-top:6px"></div>
+    <div class="btn-row">
+      <button class="btn small ghost" id="slot-class">授業を登録</button>
+      <button class="btn small ghost" id="slot-auto">自動に戻す</button>
+      <button class="btn small ghost" id="slot-cancel">キャンセル</button>
+      <button class="btn small" id="slot-save">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- 時間割編集モーダル -->
 <div class="modal-bg" id="tt-modal">
   <div class="modal">
@@ -361,6 +379,7 @@ let events = load("events", []);          // [{id, date, time, title, type}]
 let week = load("week", null);            // {weekStart, goals[], todos[{id,day,text,cat,min,done}]}
 let habits = load("habits", {});          // {typing: {streak, last, prevStreak, prevLast}}
 let history = load("history", []);
+let slotManual = load("slotManual", {});  // {"mon-2": [todoId, ...]} 空きコマの手動割り当て
 
 // ============ タブ ============
 document.querySelectorAll("nav.tabs button").forEach(function (btn) {
@@ -500,22 +519,117 @@ function renderWeek() {
 
 // ============ 時間割 ============
 let editingCell = null;
+
+// 空きコマ（1〜4限）への自動割り当て。
+// その曜日のToDoを優先し、残った容量に「いつでも枠」を詰める（1コマ=90分、複数可）。
+// 完了済みも計算に含めることで、チェックしても配置が動かない（安定表示）。
+function taskMin(t) { return t.min > 0 ? t.min : 90; }
+function computeSlotMap() {
+  const map = {};
+  if (!week || !week.todos) return map;
+  const assigned = {};
+  Object.keys(slotManual).forEach(function (cell) {
+    (slotManual[cell] || []).forEach(function (id) { assigned[String(id)] = true; });
+  });
+  ["mon", "tue", "wed", "thu", "fri"].forEach(function (d) {
+    for (let p = 1; p <= 4; p++) {
+      const key = d + "-" + p;
+      if (timetable[key] && timetable[key].name) continue;
+      if (slotManual[key]) { map[key] = slotManual[key]; continue; }
+      let cap = 90;
+      const ids = [];
+      week.todos.forEach(function (t) { // 曜日指定タスクを優先
+        if (t.day !== d || assigned[String(t.id)]) return;
+        if (taskMin(t) <= cap) { ids.push(t.id); cap -= taskMin(t); assigned[String(t.id)] = true; }
+      });
+      week.todos.forEach(function (t) { // いつでも枠で埋める
+        if (t.day || assigned[String(t.id)]) return;
+        if (taskMin(t) <= cap) { ids.push(t.id); cap -= taskMin(t); assigned[String(t.id)] = true; }
+      });
+      if (ids.length) map[key] = ids;
+    }
+  });
+  return map;
+}
+
 function renderTT() {
+  const slotMap = computeSlotMap();
   const tb = document.getElementById("tt-body");
   tb.innerHTML = PERIODS.map(function (p) {
     return "<tr><th>" + p.n + '限<span class="ptime">' + p.time + "</span></th>" +
       ["mon", "tue", "wed", "thu", "fri"].map(function (d) {
-        const c = timetable[d + "-" + p.n];
-        const filled = c && c.name;
-        return '<td class="' + (filled ? "filled" : "") + '" data-cell="' + d + "-" + p.n + '">' +
-          (filled ? '<span class="nm">' + esc(c.name) + "</span>" + (c.room ? '<span class="rm">' + esc(c.room) + "</span>" : "") : "") +
-          "</td>";
+        const key = d + "-" + p.n;
+        const c = timetable[key];
+        if (c && c.name) {
+          return '<td class="filled" data-cell="' + key + '"><span class="nm">' + esc(c.name) + "</span>" +
+            (c.room ? '<span class="rm">' + esc(c.room) + "</span>" : "") + "</td>";
+        }
+        const tasksHtml = (slotMap[key] || []).map(function (id) {
+          const t = week.todos.find(function (x) { return String(x.id) === String(id); });
+          if (!t) return "";
+          return '<label class="slot-task' + (t.done ? " done" : "") + '">' +
+            '<input type="checkbox" data-slottodo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
+            "<span>" + esc(t.text) + (t.min ? "（" + t.min + "分）" : "") + "</span></label>";
+        }).join("");
+        return '<td data-cell="' + key + '">' + tasksHtml + "</td>";
       }).join("") + "</tr>";
   }).join("");
   tb.querySelectorAll("[data-cell]").forEach(function (td) {
-    td.addEventListener("click", function () { openTTModal(td.dataset.cell); });
+    td.addEventListener("click", function () {
+      const key = td.dataset.cell;
+      const period = Number(key.split("-")[1]);
+      const hasClass = timetable[key] && timetable[key].name;
+      if (hasClass || period === 5) openTTModal(key);
+      else openSlotModal(key);
+    });
+  });
+  tb.querySelectorAll("[data-slottodo]").forEach(function (cb) {
+    cb.addEventListener("click", function (e) { e.stopPropagation(); });
+    cb.addEventListener("change", function () {
+      const t = week.todos.find(function (x) { return String(x.id) === cb.dataset.slottodo; });
+      if (t) { t.done = cb.checked; save("week", week); renderTT(); renderToday(); renderWeek(); }
+    });
   });
 }
+
+// ---- 空きコマのタスク選択モーダル ----
+let editingSlot = null;
+function openSlotModal(cellKey) {
+  editingSlot = cellKey;
+  const parts = cellKey.split("-");
+  document.getElementById("slot-modal-title").textContent = DAY_JA[parts[0]] + "曜 " + parts[1] + "限の空きコマ";
+  const current = (computeSlotMap()[cellKey] || []).map(String);
+  const list = document.getElementById("slot-list");
+  if (!week || !week.todos || !week.todos.length) {
+    list.innerHTML = '<div class="empty">今週のプランが未取り込みです（連携タブから）</div>';
+  } else {
+    list.innerHTML = week.todos.map(function (t) {
+      const checked = current.indexOf(String(t.id)) !== -1;
+      return '<label class="check-item' + (t.done ? " done" : "") + '" style="font-size:13px">' +
+        '<input type="checkbox" class="slot-pick" value="' + t.id + '"' + (checked ? " checked" : "") + ">" +
+        "<span>" + esc(t.text) + ' <span class="meta">' + esc(t.cat || "") + (t.min ? "・" + t.min + "分" : "") + "</span></span></label>";
+    }).join("");
+  }
+  document.getElementById("slot-modal").classList.add("show");
+}
+document.getElementById("slot-save").addEventListener("click", function () {
+  const ids = [];
+  document.querySelectorAll(".slot-pick:checked").forEach(function (cb) { ids.push(cb.value); });
+  slotManual[editingSlot] = ids;
+  save("slotManual", slotManual);
+  closeSlotModal(); renderTT();
+});
+document.getElementById("slot-auto").addEventListener("click", function () {
+  delete slotManual[editingSlot];
+  save("slotManual", slotManual);
+  closeSlotModal(); renderTT();
+});
+document.getElementById("slot-class").addEventListener("click", function () {
+  closeSlotModal(); openTTModal(editingSlot);
+});
+document.getElementById("slot-cancel").addEventListener("click", closeSlotModal);
+document.getElementById("slot-modal").addEventListener("click", function (e) { if (e.target.id === "slot-modal") closeSlotModal(); });
+function closeSlotModal() { document.getElementById("slot-modal").classList.remove("show"); }
 function openTTModal(cellKey) {
   editingCell = cellKey;
   const parts = cellKey.split("-");
@@ -634,8 +748,10 @@ document.getElementById("import-btn").addEventListener("click", function () {
   plan.goals = plan.goals || [];
   week = plan;
   save("week", week);
+  slotManual = {}; // 新しい週なので空きコマの手動割り当てもリセット
+  save("slotManual", slotManual);
   document.getElementById("import-area").value = "";
-  renderToday(); renderWeek();
+  renderToday(); renderWeek(); renderTT();
   toast("今週のプランを取り込みました🎉");
 });
 
@@ -686,7 +802,7 @@ document.getElementById("prompt-btn").addEventListener("click", function () {
 });
 
 document.getElementById("backup-btn").addEventListener("click", function () {
-  const data = JSON.stringify({ timetable: timetable, events: events, week: week, habits: habits, history: history });
+  const data = JSON.stringify({ timetable: timetable, events: events, week: week, habits: habits, history: history, slotManual: slotManual });
   document.getElementById("backup-area").value = data;
   copyText(data, "全データをコピーしました");
 });
@@ -700,6 +816,7 @@ document.getElementById("restore-btn").addEventListener("click", function () {
     if (d.week) { week = d.week; save("week", week); }
     if (d.habits) { habits = d.habits; save("habits", habits); }
     if (d.history) { history = d.history; save("history", history); }
+    if (d.slotManual) { slotManual = d.slotManual; save("slotManual", slotManual); }
     renderToday(); renderWeek(); renderTT(); renderCal();
     toast("復元しました");
   } catch (e) { toast("データの形式が正しくありません"); }
