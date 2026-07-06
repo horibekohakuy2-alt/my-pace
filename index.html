@@ -86,6 +86,7 @@ nav.tabs button.active { color: var(--accent); font-weight: bold; }
 .check-item.done label { text-decoration: line-through; color: var(--muted); }
 .check-item label { flex: 1; }
 .check-item .meta { font-size: 11px; color: var(--muted); }
+.day-pick { font-size: 11px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: #fbfcfe; flex-shrink: 0; }
 .streak { font-size: 12px; color: var(--warn); font-weight: bold; white-space: nowrap; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
 
@@ -221,12 +222,16 @@ ol.guide li { margin: 4px 0; }
     <div class="card">
       <div class="form-row"><input id="ev-title" placeholder="予定名（例: バイト）"></div>
       <div class="form-row">
-        <input id="ev-time" type="time">
+        <input id="ev-time" type="time" title="開始">
+        <span style="align-self:center" class="muted">〜</span>
+        <input id="ev-end" type="time" title="終了">
+      </div>
+      <div class="form-row">
         <select id="ev-type">
           <option>バイト</option><option>遊び</option><option>サークル</option><option>大学</option><option>その他</option>
         </select>
+        <button class="btn small" id="ev-add" style="white-space:nowrap">＋ 追加</button>
       </div>
-      <button class="btn small" id="ev-add">＋ この日に追加</button>
     </div>
   </section>
 
@@ -234,8 +239,8 @@ ol.guide li { margin: 4px 0; }
   <section class="view" id="view-sync">
     <h2>Claude連携</h2>
     <div class="card">
-      <p class="small" style="margin-bottom:8px"><strong>① 週間プランの取り込み</strong><br>
-      <span class="muted">ClaudeにもらったJSONを貼り付けて取り込む。現在の週は自動で履歴に保存される。</span></p>
+      <p class="small" style="margin-bottom:8px"><strong>① プラン・予定の取り込み</strong><br>
+      <span class="muted">ClaudeにもらったJSONを貼り付けて取り込む。週間プラン（weekStart+todos）とカレンダー予定（events: バイトのシフト・サークル等）のどちらも、混ざっていてもOK。同じ予定の二重取り込みは自動で防がれる。</span></p>
       <textarea id="import-area" placeholder='{"weekStart":"2026-07-06","goals":[...],"todos":[...]}'></textarea>
       <div style="margin-top:8px"><button class="btn small" id="import-btn">取り込む</button></div>
     </div>
@@ -359,6 +364,7 @@ function toast(msg) {
   toast._tm = setTimeout(function () { t.classList.remove("show"); }, 2000);
 }
 function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function evTime(e) { return e.time ? e.time + (e.end ? "〜" + e.end : "") : "終日"; }
 function copyText(text, okMsg) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function () { toast(okMsg); }, function () { fallbackCopy(text, okMsg); });
@@ -402,7 +408,7 @@ function renderToday() {
   const evs = events.filter(function (e) { return e.date === iso; }).sort(function (a, b) { return (a.time || "").localeCompare(b.time || ""); });
   document.getElementById("today-events").innerHTML = evs.length
     ? evs.map(function (e) {
-        return '<div class="event-line"><span class="time">' + (e.time || "終日") + "</span><span>" + esc(e.title) + '</span><span class="event-type">' + esc(e.type) + "</span></div>";
+        return '<div class="event-line"><span class="time">' + evTime(e) + "</span><span>" + esc(e.title) + '</span><span class="event-type">' + esc(e.type) + "</span></div>";
       }).join("")
     : '<div class="empty">予定なし</div>';
 
@@ -445,12 +451,33 @@ function setProgress(done, total) {
   document.getElementById("today-progress-text").textContent = total ? done + " / " + total + " 完了" : "";
 }
 function todoRow(t, deletable) {
+  let daySel = "";
+  if (deletable === true) {
+    daySel = '<select class="day-pick" data-daypick="' + t.id + '">' +
+      ["", "mon", "tue", "wed", "thu", "fri", "sat", "sun"].map(function (d) {
+        return '<option value="' + d + '"' + ((t.day || "") === d ? " selected" : "") + ">" +
+          (d ? DAY_JA[d] : "いつでも") + "</option>";
+      }).join("") + "</select>";
+  }
   return '<div class="check-item' + (t.done ? " done" : "") + '">' +
     '<input type="checkbox" data-todo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
     "<label>" + esc(t.text) +
     ' <span class="meta">' + esc(t.cat || "") + (t.min ? "・" + t.min + "分" : "") + "</span></label>" +
+    daySel +
     (deletable === true ? '<button class="del-btn" data-tododel="' + t.id + '">✕</button>' : "") +
     "</div>";
+}
+function bindDayPicks(root) {
+  root.querySelectorAll("[data-daypick]").forEach(function (sel) {
+    sel.addEventListener("change", function () {
+      const t = week.todos.find(function (x) { return String(x.id) === sel.dataset.daypick; });
+      if (t) {
+        t.day = sel.value || null;
+        save("week", week);
+        renderToday(); renderWeek(); renderTT();
+      }
+    });
+  });
 }
 function bindTodoDeletes(root) {
   root.querySelectorAll("[data-tododel]").forEach(function (b) {
@@ -528,6 +555,7 @@ function renderWeek() {
   box.innerHTML = html;
   bindTodoChecks(box);
   bindTodoDeletes(box);
+  bindDayPicks(box);
 }
 
 // ============ 時間割 ============
@@ -704,7 +732,7 @@ function renderSelEvents() {
   const list = events.filter(function (e) { return e.date === selDate; }).sort(function (a, b) { return (a.time || "").localeCompare(b.time || ""); });
   document.getElementById("cal-sel-events").innerHTML = list.length
     ? list.map(function (e) {
-        return '<div class="event-line"><span class="time">' + (e.time || "終日") + "</span><span style=\"flex:1\">" + esc(e.title) + '</span><span class="event-type">' + esc(e.type) + "</span>" +
+        return '<div class="event-line"><span class="time">' + evTime(e) + "</span><span style=\"flex:1\">" + esc(e.title) + '</span><span class="event-type">' + esc(e.type) + "</span>" +
           '<button class="del-btn" data-del="' + e.id + '">✕</button></div>';
       }).join("")
     : '<div class="empty">予定なし</div>';
@@ -728,11 +756,13 @@ document.getElementById("ev-add").addEventListener("click", function () {
     id: Date.now(),
     date: selDate,
     time: document.getElementById("ev-time").value,
+    end: document.getElementById("ev-end").value,
     title: title,
     type: document.getElementById("ev-type").value,
   });
   save("events", events);
   document.getElementById("ev-title").value = "";
+  document.getElementById("ev-end").value = "";
   renderCal(); renderToday();
   toast("予定を追加しました");
 });
@@ -768,29 +798,61 @@ document.getElementById("import-btn").addEventListener("click", function () {
   if (!raw) { toast("JSONを貼り付けてください"); return; }
   let plan;
   try { plan = JSON.parse(raw); } catch (e) { toast("JSONの形式が正しくありません"); return; }
-  if (!plan.weekStart || !Array.isArray(plan.todos)) { toast("weekStart と todos が必要です"); return; }
-  // 現在の週を履歴へ
-  if (week && week.weekStart && week.weekStart !== plan.weekStart) {
-    history.push({
-      weekStart: week.weekStart,
-      goals: week.goals || [],
-      done: week.todos.filter(function (t) { return t.done; }).length,
-      total: week.todos.length,
+  const results = [];
+
+  // 予定（バイトシフト・サークル等）の取り込み: {"events":[{date,time,end,title,type}]}
+  if (Array.isArray(plan.events)) {
+    let added = 0;
+    plan.events.forEach(function (ev, i) {
+      if (!ev.date || !ev.title) return;
+      const dup = events.some(function (x) {
+        return x.date === ev.date && x.title === ev.title && (x.time || "") === (ev.time || "");
+      });
+      if (dup) return; // 同じ予定の二重取り込みを防ぐ
+      events.push({
+        id: Date.now() + i,
+        date: ev.date,
+        time: ev.time || "",
+        end: ev.end || "",
+        title: ev.title,
+        type: ev.type || "その他",
+      });
+      added++;
     });
-    if (history.length > 26) history = history.slice(-26);
-    save("history", history);
+    save("events", events);
+    results.push("予定" + added + "件");
   }
-  plan.todos = plan.todos.map(function (t, i) {
-    return { id: t.id || (Date.now() + i), day: t.day || null, text: t.text || "", cat: t.cat || "", min: t.min || 0, done: !!t.done };
-  });
-  plan.goals = plan.goals || [];
-  week = plan;
-  save("week", week);
-  slotManual = {}; // 新しい週なので空きコマの手動割り当てもリセット
-  save("slotManual", slotManual);
+
+  // 週間プランの取り込み: {"weekStart", "goals", "todos"}
+  if (plan.weekStart && Array.isArray(plan.todos)) {
+    // 現在の週を履歴へ
+    if (week && week.weekStart && week.weekStart !== plan.weekStart) {
+      history.push({
+        weekStart: week.weekStart,
+        goals: week.goals || [],
+        done: week.todos.filter(function (t) { return t.done; }).length,
+        total: week.todos.length,
+      });
+      if (history.length > 26) history = history.slice(-26);
+      save("history", history);
+    }
+    week = {
+      weekStart: plan.weekStart,
+      goals: plan.goals || [],
+      todos: plan.todos.map(function (t, i) {
+        return { id: t.id || (Date.now() + 1000 + i), day: t.day || null, text: t.text || "", cat: t.cat || "", min: t.min || 0, done: !!t.done };
+      }),
+    };
+    save("week", week);
+    slotManual = {}; // 新しい週なので空きコマの手動割り当てもリセット
+    save("slotManual", slotManual);
+    results.push("今週のプラン");
+  }
+
+  if (!results.length) { toast("weekStart+todos または events が必要です"); return; }
   document.getElementById("import-area").value = "";
-  renderToday(); renderWeek(); renderTT();
-  toast("今週のプランを取り込みました🎉");
+  renderToday(); renderWeek(); renderTT(); renderCal();
+  toast(results.join("・") + "を取り込みました🎉");
 });
 
 document.getElementById("report-btn").addEventListener("click", function () {
@@ -833,9 +895,10 @@ document.getElementById("prompt-btn").addEventListener("click", function () {
     '1. まず上記の時間割・予定・通学等を踏まえ、各曜日の学習可能時間を見積もって提示すること（学習可能時間は固定値ではなく時間割から変動する）\n' +
     '2. 今週の目標（goals）は私に質問せず、Obsidianの記録（Projects/self-growth-roadmap.md・各分野のプラン・前週のレポート）と今週のToDo内容からあなたが考えて設定すること\n' +
     '3. Obsidianの Projects/self-growth-roadmap.md の優先順位・締切例外ルールを踏まえること\n' +
-    '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数\n\n' +
+    '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数\n' +
+    '5. バイトのシフトやAIサークル勉強会（毎週水曜）などの予定を伝えられたら、events 配列でも出力すること（同じ取り込み欄でカレンダーに反映される）。typeは バイト/遊び/サークル/大学/その他\n\n' +
     '出力例:\n' +
-    '{\n  "weekStart": "2026-07-06",\n  "goals": ["Code Dojo HTMLユニット完了", "TOEFL単語300個"],\n  "todos": [\n    {"day": "mon", "text": "Code Dojo HTML-01〜02", "cat": "プログラミング", "min": 60},\n    {"day": null, "text": "TOEFL単語100個", "cat": "英語", "min": 90}\n  ]\n}';
+    '{\n  "weekStart": "2026-07-06",\n  "goals": ["Code Dojo HTMLユニット完了", "TOEFL単語300個"],\n  "todos": [\n    {"day": "mon", "text": "Code Dojo HTML-01〜02", "cat": "プログラミング", "min": 60},\n    {"day": null, "text": "TOEFL単語100個", "cat": "英語", "min": 90}\n  ],\n  "events": [\n    {"date": "2026-07-09", "time": "18:00", "end": "22:00", "title": "塾バイト", "type": "バイト"},\n    {"date": "2026-07-08", "time": "18:15", "end": "19:45", "title": "AIサークル勉強会", "type": "サークル"}\n  ]\n}';
   copyText(txt, "依頼文をコピーしました");
 });
 
