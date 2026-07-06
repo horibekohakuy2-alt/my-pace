@@ -86,7 +86,7 @@ nav.tabs button.active { color: var(--accent); font-weight: bold; }
 .check-item.done label { text-decoration: line-through; color: var(--muted); }
 .check-item label { flex: 1; }
 .check-item .meta { font-size: 11px; color: var(--muted); }
-.day-pick { font-size: 11px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: #fbfcfe; flex-shrink: 0; }
+.day-pick { font-size: 16px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: #fbfcfe; flex-shrink: 0; }
 .streak { font-size: 12px; color: var(--warn); font-weight: bold; white-space: nowrap; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
 
@@ -131,8 +131,9 @@ table.cal td.sel { background: var(--accent-soft); }
 .suggest-item .meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .event-line.editable { cursor: pointer; }
 .form-row { display: flex; gap: 8px; margin: 6px 0; }
+/* iOSは16px未満の入力欄にフォーカスすると画面をズームするため、入力系は16px固定 */
 .form-row input, .form-row select, textarea {
-  font-family: inherit; font-size: 14px; padding: 9px 10px;
+  font-family: inherit; font-size: 16px; padding: 9px 10px;
   border: 1px solid var(--border); border-radius: 8px; width: 100%; background: #fbfcfe;
 }
 textarea { min-height: 110px; font-size: 12px; }
@@ -194,11 +195,21 @@ ol.guide li { margin: 4px 0; }
           <option value="mon">月</option><option value="tue">火</option><option value="wed">水</option>
           <option value="thu">木</option><option value="fri">金</option><option value="sat">土</option><option value="sun">日</option>
         </select>
+        <select id="todo-mode">
+          <option value="min">分で指定</option>
+          <option value="time">時刻で指定</option>
+        </select>
+      </div>
+      <div class="form-row" id="todo-min-row">
         <input id="todo-min" type="number" placeholder="分（任意）">
+      </div>
+      <div class="form-row" id="todo-time-row" hidden>
+        <input id="todo-start" type="time" title="開始">
+        <span style="align-self:center" class="muted">〜</span>
+        <input id="todo-end" type="time" title="終了">
       </div>
       <button class="btn small" id="todo-add">＋ タスクを追加</button>
     </div>
-    <p class="muted small">ToDoはClaudeのプラン取り込み（連携タブ）でも、ここでの手動追加でもOK。</p>
   </section>
 
   <!-- ============ 時間割 ============ -->
@@ -210,7 +221,6 @@ ol.guide li { margin: 4px 0; }
         <tbody id="tt-body"></tbody>
       </table>
     </div>
-    <p class="muted small">1〜4限の空きコマには、今週のToDoが所要時間に合わせて自動で入る（白背景のまま表示）。コマをタップすると差し替え・授業登録ができ、チェックは「今日」「週間」とも連動する。学期が変わったら（4月・6月・10月・12月）授業を更新する。</p>
   </section>
 
   <!-- ============ カレンダー ============ -->
@@ -252,7 +262,7 @@ ol.guide li { margin: 4px 0; }
     <h2>Claude連携</h2>
     <div class="card">
       <p class="small" style="margin-bottom:8px"><strong>① プラン・予定の取り込み</strong><br>
-      <span class="muted">ClaudeにもらったJSONを貼り付けて取り込む。週間プラン（weekStart+todos）とカレンダー予定（events: バイトのシフト・サークル等）のどちらも、混ざっていてもOK。同じ予定の二重取り込みは自動で防がれる。</span></p>
+      <span class="muted">ClaudeにもらったJSONを貼り付けて取り込む。</span></p>
       <textarea id="import-area" placeholder='{"weekStart":"2026-07-06","goals":[...],"todos":[...]}'></textarea>
       <div style="margin-top:8px"><button class="btn small" id="import-btn">取り込む</button></div>
     </div>
@@ -268,6 +278,17 @@ ol.guide li { margin: 4px 0; }
     </div>
 
     <h2>設定・データ</h2>
+    <details>
+      <summary>📖 機能の説明</summary>
+      <div class="card">
+        <p class="small"><strong>ToDoリスト（週間タブ）</strong><br>
+        <span class="muted">Claudeのプラン取り込みでも、週間タブでの手動追加でもOK。各タスクは曜日セレクタで好きな曜日に動かせる。「分で指定」または未入力のタスクは時間割の空きコマへ自動で振り分けられ、「時刻で指定」のタスクは自動振り分けの対象外になる。</span></p>
+        <p class="small" style="margin-top:10px"><strong>時間割の空きコマ（時間割タブ）</strong><br>
+        <span class="muted">1〜4限の空きコマには、今週のToDoが所要時間に合わせて自動で入る（白背景のまま表示）。コマをタップすると差し替え・授業登録ができ、チェックは「今日」「週間」とも連動する。学期が変わったら（4月・6月・10月・12月）授業を更新する。</span></p>
+        <p class="small" style="margin-top:10px"><strong>取り込み（このタブの①）</strong><br>
+        <span class="muted">週間プラン（weekStart+todos）・カレンダー予定（events: バイトのシフト・サークル等）・習慣リスト（habits）のどれも取り込める。混ざっていてもOK。同じ予定の二重取り込みは自動で防がれる。</span></p>
+      </div>
+    </details>
     <details>
       <summary>🔔 毎日の通知を設定する（iPhone）</summary>
       <div class="card">
@@ -339,7 +360,7 @@ ol.guide li { margin: 4px 0; }
     <h3>毎日の習慣を編集</h3>
     <div id="habit-list" style="max-height:40vh;overflow-y:auto"></div>
     <div style="display:flex;gap:8px;margin-top:10px">
-      <input id="habit-new" placeholder="新しい習慣（例: 読書 15分）" style="flex:1;font-size:14px;padding:9px 10px;border:1px solid var(--border);border-radius:8px">
+      <input id="habit-new" placeholder="新しい習慣（例: 読書 15分）" style="flex:1;font-size:16px;padding:9px 10px;border:1px solid var(--border);border-radius:8px">
       <button class="btn small" id="habit-add" style="white-space:nowrap">追加</button>
     </div>
     <div class="btn-row"><button class="btn small ghost" id="habit-close">閉じる</button></div>
@@ -529,10 +550,13 @@ function todoRow(t, deletable) {
           (d ? DAY_JA[d] : "いつでも") + "</option>";
       }).join("") + "</select>";
   }
+  const timeMeta = t.start
+    ? "・" + t.start + (t.end ? "〜" + t.end : "")
+    : (t.min ? "・" + t.min + "分" : "");
   return '<div class="check-item' + (t.done ? " done" : "") + '">' +
     '<input type="checkbox" data-todo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
     "<label>" + esc(t.text) +
-    ' <span class="meta">' + esc(t.cat || "") + (t.min ? "・" + t.min + "分" : "") + "</span></label>" +
+    ' <span class="meta">' + esc(t.cat || "") + timeMeta + "</span></label>" +
     daySel +
     (deletable === true ? '<button class="del-btn" data-tododel="' + t.id + '">✕</button>' : "") +
     "</div>";
@@ -650,11 +674,11 @@ function computeSlotMap() {
       let cap = 90;
       const ids = [];
       week.todos.forEach(function (t) { // 曜日指定タスクを優先
-        if (t.day !== d || assigned[String(t.id)]) return;
+        if (t.start || t.day !== d || assigned[String(t.id)]) return; // 時刻指定タスクは自動振り分けしない
         if (taskMin(t) <= cap) { ids.push(t.id); cap -= taskMin(t); assigned[String(t.id)] = true; }
       });
       week.todos.forEach(function (t) { // いつでも枠で埋める
-        if (t.day || assigned[String(t.id)]) return;
+        if (t.start || t.day || assigned[String(t.id)]) return;
         if (taskMin(t) <= cap) { ids.push(t.id); cap -= taskMin(t); assigned[String(t.id)] = true; }
       });
       if (ids.length) map[key] = ids;
@@ -941,7 +965,9 @@ document.getElementById("ev-add").addEventListener("click", function () {
   });
   save("events", events);
   document.getElementById("ev-title").value = "";
+  document.getElementById("ev-time").value = "";
   document.getElementById("ev-end").value = "";
+  if (document.activeElement) document.activeElement.blur(); // キーボードを閉じてズームを戻す
   renderCal(); renderToday();
   toast("予定を追加しました");
 });
@@ -956,13 +982,13 @@ const evTitleInput = document.getElementById("ev-title");
 const suggestBox = document.getElementById("ev-suggest");
 function renderSuggest() {
   const q = evTitleInput.value.trim();
-  if (!q) { suggestBox.hidden = true; return; }
   const seen = {};
   const cands = [];
   events.slice()
     .sort(function (a, b) { return b.date.localeCompare(a.date); }) // 新しい予定を優先
     .forEach(function (e) {
-      if (seen[e.title] || e.title.indexOf(q) === -1) return;
+      if (seen[e.title]) return;
+      if (q && e.title.indexOf(q) === -1) return; // 未入力なら最近の予定名をそのまま候補に（iOS標準カレンダー風）
       seen[e.title] = true;
       cands.push(e);
     });
@@ -972,7 +998,8 @@ function renderSuggest() {
   }).join("");
   suggestBox.hidden = false;
   suggestBox.querySelectorAll("[data-sg]").forEach(function (item) {
-    item.addEventListener("mousedown", function (ev) {
+    // iPhoneのタップで確実に反応するようpointerdownで拾う（blurより先に発火する）
+    item.addEventListener("pointerdown", function (ev) {
       ev.preventDefault();
       const e = events.find(function (x) { return String(x.id) === item.dataset.sg; });
       if (e) {
@@ -995,21 +1022,44 @@ function mondayISO() {
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // 今週の月曜
   return isoOf(d);
 }
+// 「分で指定 / 時刻で指定」の切り替え
+document.getElementById("todo-mode").addEventListener("change", function () {
+  const isTime = this.value === "time";
+  document.getElementById("todo-min-row").hidden = isTime;
+  document.getElementById("todo-time-row").hidden = !isTime;
+});
+// 開始を選ぶと終了を自動で1時間後に（予定と同じ挙動）
+document.getElementById("todo-start").addEventListener("change", function () {
+  if (this.value) document.getElementById("todo-end").value = addHour(this.value);
+});
+
 document.getElementById("todo-add").addEventListener("click", function () {
   const text = document.getElementById("todo-text").value.trim();
   if (!text) { toast("タスク名を入力してください"); return; }
   if (!week) week = { weekStart: mondayISO(), goals: [], todos: [] };
-  week.todos.push({
+  const todo = {
     id: Date.now(),
     day: document.getElementById("todo-day").value || null,
     text: text,
     cat: "",
-    min: Number(document.getElementById("todo-min").value) || 0,
+    min: 0,
+    start: "",
+    end: "",
     done: false,
-  });
+  };
+  if (document.getElementById("todo-mode").value === "time") {
+    todo.start = document.getElementById("todo-start").value;
+    todo.end = document.getElementById("todo-end").value;
+  } else {
+    todo.min = Number(document.getElementById("todo-min").value) || 0;
+  }
+  week.todos.push(todo);
   save("week", week);
   document.getElementById("todo-text").value = "";
   document.getElementById("todo-min").value = "";
+  document.getElementById("todo-start").value = "";
+  document.getElementById("todo-end").value = "";
+  if (document.activeElement) document.activeElement.blur();
   renderToday(); renderWeek(); renderTT();
   toast("タスクを追加しました");
 });
@@ -1072,7 +1122,7 @@ document.getElementById("import-btn").addEventListener("click", function () {
       weekStart: plan.weekStart,
       goals: plan.goals || [],
       todos: plan.todos.map(function (t, i) {
-        return { id: t.id || (Date.now() + 1000 + i), day: t.day || null, text: t.text || "", cat: t.cat || "", min: t.min || 0, done: !!t.done };
+        return { id: t.id || (Date.now() + 1000 + i), day: t.day || null, text: t.text || "", cat: t.cat || "", min: t.min || 0, start: t.start || "", end: t.end || "", done: !!t.done };
       }),
     };
     save("week", week);
