@@ -372,21 +372,7 @@ function fallbackCopy(text, okMsg) {
 }
 
 // ============ データ ============
-// 初期時間割（2026年度・本人提供。学期が変わったらアプリ上で編集する）
-const DEFAULT_TIMETABLE = {
-  "mon-3": { name: "電子デバイス工学", room: "" },
-  "mon-4": { name: "応用数学Ⅰ", room: "" },
-  "tue-1": { name: "芸術と文学", room: "" },
-  "tue-2": { name: "応用数学Ⅰ演習", room: "" },
-  "tue-4": { name: "情報理工学入門", room: "" },
-  "wed-4": { name: "情報理論", room: "" },
-  "thu-4": { name: "情報エレクトロニクス演習", room: "" },
-  "fri-1": { name: "計算機プログラミング", room: "" },
-  "fri-2": { name: "計算機プログラミング", room: "" },
-  "fri-3": { name: "情報理論", room: "" },
-};
-let timetable = load("timetable", null); // {"mon-1": {name, room}}
-if (!timetable) { timetable = DEFAULT_TIMETABLE; save("timetable", timetable); }
+let timetable = load("timetable", {}); // {"mon-1": {name, room}} 時間割タブから入力する
 let events = load("events", []);          // [{id, date, time, title, type}]
 let week = load("week", null);            // {weekStart, goals[], todos[{id,day,text,cat,min,done}]}
 let habits = load("habits", {});          // {typing: {streak, last, prevStreak, prevLast}}
