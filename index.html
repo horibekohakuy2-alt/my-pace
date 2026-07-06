@@ -174,7 +174,7 @@ ol.guide li { margin: 4px 0; }
     <h2>今日のToDo <span class="muted small" id="today-progress-text"></span></h2>
     <div class="progress-bar"><div class="progress-fill" id="today-progress"></div></div>
     <div class="card" id="today-todos"></div>
-    <h2>毎日の習慣</h2>
+    <h2>毎日の習慣 <button class="btn ghost" id="habit-edit" style="font-size:11px;padding:2px 10px;margin-left:auto">✎ 編集</button></h2>
     <div class="card" id="today-habits"></div>
   </section>
 
@@ -333,8 +333,21 @@ ol.guide li { margin: 4px 0; }
   </div>
 </div>
 
+<!-- 習慣の編集モーダル -->
+<div class="modal-bg" id="habit-modal">
+  <div class="modal">
+    <h3>毎日の習慣を編集</h3>
+    <div id="habit-list" style="max-height:40vh;overflow-y:auto"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="habit-new" placeholder="新しい習慣（例: 読書 15分）" style="flex:1;font-size:14px;padding:9px 10px;border:1px solid var(--border);border-radius:8px">
+      <button class="btn small" id="habit-add" style="white-space:nowrap">追加</button>
+    </div>
+    <div class="btn-row"><button class="btn small ghost" id="habit-close">閉じる</button></div>
+  </div>
+</div>
+
 <!-- 削除確認モーダル -->
-<div class="modal-bg" id="confirm-modal">
+<div class="modal-bg" id="confirm-modal" style="z-index:60">
   <div class="modal">
     <p id="confirm-msg" style="color:#dc2626;font-weight:bold;font-size:15px;text-align:center;padding:8px 0"></p>
     <div class="btn-row" style="justify-content:center">
@@ -387,7 +400,7 @@ const PERIODS = [
   { n: 4, time: "14:45-16:15" },
   { n: 5, time: "16:30-18:00" },
 ];
-const HABITS_DEF = [
+const DEFAULT_HABITS = [
   { id: "typing", name: "タイピング練習 10分" },
   { id: "shadow", name: "英語シャドーイング 15分" },
   { id: "ainews", name: "AIニュースチェック 10分" },
@@ -437,6 +450,8 @@ let week = load("week", null);            // {weekStart, goals[], todos[{id,day,
 let habits = load("habits", {});          // {typing: {streak, last, prevStreak, prevLast}}
 let history = load("history", []);
 let slotManual = load("slotManual", {});  // {"mon-2": [todoId, ...]} 空きコマの手動割り当て
+let habitDefs = load("habitDefs", null);  // [{id, name}] 毎日の習慣（編集可能）
+if (!habitDefs) { habitDefs = DEFAULT_HABITS; save("habitDefs", habitDefs); }
 
 // ============ タブ ============
 document.querySelectorAll("nav.tabs button").forEach(function (btn) {
@@ -466,12 +481,14 @@ function renderToday() {
     : '<div class="empty">予定なし</div>';
 
   // 習慣
-  document.getElementById("today-habits").innerHTML = HABITS_DEF.map(function (h) {
+  document.getElementById("today-habits").innerHTML = habitDefs.length === 0
+    ? '<div class="empty">習慣がありません（「編集」から追加）</div>'
+    : habitDefs.map(function (h) {
     const st = habits[h.id] || { streak: 0, last: null };
     const doneToday = st.last === iso;
     return '<div class="check-item' + (doneToday ? " done" : "") + '">' +
       '<input type="checkbox" data-habit="' + h.id + '"' + (doneToday ? " checked" : "") + ">" +
-      "<label>" + h.name + "</label>" +
+      "<label>" + esc(h.name) + "</label>" +
       '<span class="streak">' + (st.streak > 0 ? "🔥" + st.streak + "日" : "") + "</span></div>";
   }).join("");
   document.querySelectorAll("[data-habit]").forEach(function (cb) {
@@ -864,6 +881,47 @@ document.getElementById("confirm-cancel").addEventListener("click", function () 
   document.getElementById("confirm-modal").classList.remove("show");
   confirmCallback = null;
 });
+
+// ---- 毎日の習慣の編集 ----
+function renderHabitList() {
+  const box = document.getElementById("habit-list");
+  box.innerHTML = habitDefs.length
+    ? habitDefs.map(function (h) {
+        const st = habits[h.id] || { streak: 0 };
+        return '<div class="check-item"><label style="flex:1">' + esc(h.name) +
+          ' <span class="meta">' + (st.streak > 0 ? "🔥" + st.streak + "日" : "") + "</span></label>" +
+          '<button class="del-btn" data-habitdel="' + h.id + '">✕</button></div>';
+      }).join("")
+    : '<div class="empty">習慣がありません。下から追加してください</div>';
+  box.querySelectorAll("[data-habitdel]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      showConfirm("この習慣を削除しますか？（連続記録も消えます）", function () {
+        habitDefs = habitDefs.filter(function (h) { return h.id !== b.dataset.habitdel; });
+        delete habits[b.dataset.habitdel];
+        save("habitDefs", habitDefs); save("habits", habits);
+        renderHabitList(); renderToday();
+      });
+    });
+  });
+}
+document.getElementById("habit-edit").addEventListener("click", function () {
+  renderHabitList();
+  document.getElementById("habit-modal").classList.add("show");
+});
+document.getElementById("habit-add").addEventListener("click", function () {
+  const name = document.getElementById("habit-new").value.trim();
+  if (!name) { toast("習慣名を入力してください"); return; }
+  habitDefs.push({ id: "h" + Date.now(), name: name });
+  save("habitDefs", habitDefs);
+  document.getElementById("habit-new").value = "";
+  renderHabitList(); renderToday();
+});
+document.getElementById("habit-close").addEventListener("click", function () {
+  document.getElementById("habit-modal").classList.remove("show");
+});
+document.getElementById("habit-modal").addEventListener("click", function (e) {
+  if (e.target.id === "habit-modal") e.target.classList.remove("show");
+});
 document.getElementById("cal-prev").addEventListener("click", function () {
   calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCal();
 });
@@ -987,6 +1045,16 @@ document.getElementById("import-btn").addEventListener("click", function () {
     results.push("予定" + added + "件");
   }
 
+  // 習慣リストの取り込み: {"habits": ["名前", ...]}（置き換え。同名の習慣は連続記録を引き継ぐ）
+  if (Array.isArray(plan.habits)) {
+    habitDefs = plan.habits.map(function (name, i) {
+      const existing = habitDefs.find(function (h) { return h.name === name; });
+      return existing || { id: "h" + (Date.now() + i), name: String(name) };
+    });
+    save("habitDefs", habitDefs);
+    results.push("習慣" + habitDefs.length + "件");
+  }
+
   // 週間プランの取り込み: {"weekStart", "goals", "todos"}
   if (plan.weekStart && Array.isArray(plan.todos)) {
     // 現在の週を履歴へ
@@ -1028,7 +1096,7 @@ document.getElementById("report-btn").addEventListener("click", function () {
   txt += "## 達成状況: " + done.length + "/" + week.todos.length + "（" + (week.todos.length ? Math.round(done.length / week.todos.length * 100) : 0) + "%）\n";
   txt += done.map(function (t) { return "- [x] " + (t.day ? DAY_JA[t.day] + "曜: " : "") + t.text; }).join("\n") + "\n";
   txt += undone.map(function (t) { return "- [ ] " + (t.day ? DAY_JA[t.day] + "曜: " : "") + t.text + "（未完了）"; }).join("\n") + "\n\n";
-  txt += "## 習慣ストリーク\n" + HABITS_DEF.map(function (h) {
+  txt += "## 習慣ストリーク\n" + habitDefs.map(function (h) {
     const st = habits[h.id] || { streak: 0 };
     return "- " + h.name + ": 連続" + st.streak + "日";
   }).join("\n") + "\n";
@@ -1060,14 +1128,15 @@ document.getElementById("prompt-btn").addEventListener("click", function () {
     '2. 今週の目標（goals）は私に質問せず、Obsidianの記録（Projects/self-growth-roadmap.md・各分野のプラン・前週のレポート）と今週のToDo内容からあなたが考えて設定すること\n' +
     '3. Obsidianの Projects/self-growth-roadmap.md の優先順位・締切例外ルールを踏まえること\n' +
     '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数\n' +
-    '5. バイトのシフトやAIサークル勉強会（毎週水曜）などの予定を伝えられたら、events 配列でも出力すること（同じ取り込み欄でカレンダーに反映される）。typeは バイト/遊び/サークル/授業/大学/その他\n\n' +
+    '5. バイトのシフトやAIサークル勉強会（毎週水曜）などの予定を伝えられたら、events 配列でも出力すること（同じ取り込み欄でカレンダーに反映される）。typeは バイト/遊び/サークル/授業/大学/その他\n' +
+    '6. 毎日の習慣の見直しを頼まれたら "habits": ["習慣名", ...] 形式でも出力できる（習慣リストが丸ごと置き換わる。同名の習慣は連続記録を引き継ぐ）\n\n' +
     '出力例:\n' +
     '{\n  "weekStart": "2026-07-06",\n  "goals": ["Code Dojo HTMLユニット完了", "TOEFL単語300個"],\n  "todos": [\n    {"day": "mon", "text": "Code Dojo HTML-01〜02", "cat": "プログラミング", "min": 60},\n    {"day": null, "text": "TOEFL単語100個", "cat": "英語", "min": 90}\n  ],\n  "events": [\n    {"date": "2026-07-09", "time": "18:00", "end": "22:00", "title": "塾バイト", "type": "バイト"},\n    {"date": "2026-07-08", "time": "18:15", "end": "19:45", "title": "AIサークル勉強会", "type": "サークル"}\n  ]\n}';
   copyText(txt, "依頼文をコピーしました");
 });
 
 document.getElementById("backup-btn").addEventListener("click", function () {
-  const data = JSON.stringify({ timetable: timetable, events: events, week: week, habits: habits, history: history, slotManual: slotManual });
+  const data = JSON.stringify({ timetable: timetable, events: events, week: week, habits: habits, history: history, slotManual: slotManual, habitDefs: habitDefs });
   document.getElementById("backup-area").value = data;
   copyText(data, "全データをコピーしました");
 });
@@ -1082,6 +1151,7 @@ document.getElementById("restore-btn").addEventListener("click", function () {
     if (d.habits) { habits = d.habits; save("habits", habits); }
     if (d.history) { history = d.history; save("history", history); }
     if (d.slotManual) { slotManual = d.slotManual; save("slotManual", slotManual); }
+    if (d.habitDefs) { habitDefs = d.habitDefs; save("habitDefs", habitDefs); }
     renderToday(); renderWeek(); renderTT(); renderCal();
     toast("復元しました");
   } catch (e) { toast("データの形式が正しくありません"); }
