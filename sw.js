@@ -1,5 +1,5 @@
 // マイペース Service Worker: オフラインでも開けるようにキャッシュする
-const CACHE = "my-pace-v2";
+const CACHE = "my-pace-v3";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-180.png"];
 
 self.addEventListener("install", function (e) {
@@ -16,16 +16,23 @@ self.addEventListener("activate", function (e) {
   );
 });
 
-// ネットワーク優先・失敗時キャッシュ（更新を確実に反映しつつオフラインでも動く）
+// キャッシュ優先＋裏で更新（stale-while-revalidate）。
+// 起動は常にキャッシュから即表示され、圏外・不安定な回線でも白画面にならない。
+// トレードオフとして、コードの更新は「次回の起動時」に反映される。
 self.addEventListener("fetch", function (e) {
   if (e.request.method !== "GET") return;
   e.respondWith(
-    fetch(e.request)
-      .then(function (res) {
-        const copy = res.clone();
-        caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
-        return res;
-      })
-      .catch(function () { return caches.match(e.request); })
+    caches.match(e.request).then(function (cached) {
+      const fetched = fetch(e.request)
+        .then(function (res) {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
+          }
+          return res;
+        })
+        .catch(function () { return cached || Response.error(); });
+      return cached || fetched;
+    })
   );
 });

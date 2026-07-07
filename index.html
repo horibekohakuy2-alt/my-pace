@@ -89,6 +89,10 @@ nav.tabs button.active { color: var(--accent); font-weight: bold; }
 .day-pick { font-size: 16px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: #fbfcfe; flex-shrink: 0; }
 .streak { font-size: 12px; color: var(--warn); font-weight: bold; white-space: nowrap; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+.notice {
+  background: #fff7ed; border: 1px solid #fdba74; color: #9a3412;
+  border-radius: 10px; padding: 9px 12px; font-size: 12.5px; margin: 10px 0 2px; cursor: pointer;
+}
 
 /* ---- week ---- */
 .goal-line { padding: 4px 0; font-size: 14px; }
@@ -107,6 +111,12 @@ table.tt td.filled { background: var(--accent-soft); }
 .slot-task { display: flex; align-items: flex-start; gap: 3px; font-size: 9.5px; line-height: 1.3; text-align: left; padding: 1px 2px; cursor: pointer; }
 .slot-task input { width: 12px; height: 12px; margin-top: 1px; accent-color: var(--accent); flex-shrink: 0; }
 .slot-task.done span { text-decoration: line-through; color: var(--muted); }
+/* 長いタスク名でもセルが伸びないよう2行で省略（全文はコマをタップして確認） */
+.slot-task span {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; word-break: break-all;
+}
+.slot-more { display: block; font-size: 9px; color: var(--muted); text-align: left; padding: 0 2px; }
 
 /* ---- calendar ---- */
 .cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
@@ -170,6 +180,7 @@ ol.guide li { margin: 4px 0; }
 
   <!-- ============ 今日 ============ -->
   <section class="view" id="view-today">
+    <div id="today-notice"></div>
     <h2>今日の予定</h2>
     <div class="card" id="today-events"></div>
     <h2>今日のToDo <span class="muted small" id="today-progress-text"></span></h2>
@@ -268,7 +279,7 @@ ol.guide li { margin: 4px 0; }
     </div>
     <div class="card">
       <p class="small"><strong>② 週次レポートをコピー</strong><br>
-      <span class="muted">今週の達成状況をコピーしてClaudeに貼ると、Obsidianへの記録と来週のプラン作成に使われる。</span></p>
+      <span class="muted">今週の達成状況をコピーしてClaudeに貼ると、Obsidianへの記録と来週のプラン作成に使われる。全データのバックアップも自動で含まれる。</span></p>
       <div style="margin-top:8px"><button class="btn small" id="report-btn">📋 レポートをコピー</button></div>
     </div>
     <div class="card">
@@ -473,15 +484,17 @@ let history = load("history", []);
 let slotManual = load("slotManual", {});  // {"mon-2": [todoId, ...]} 空きコマの手動割り当て
 let habitDefs = load("habitDefs", null);  // [{id, name}] 毎日の習慣（編集可能）
 if (!habitDefs) { habitDefs = DEFAULT_HABITS; save("habitDefs", habitDefs); }
+let lastWeek = load("lastWeek", null);     // 終了した週のプラン（レポート作成用に退避）
+let lastBackup = load("lastBackup", null); // 最後にバックアップ/レポートをコピーした日
 
 // ============ タブ ============
+function switchView(name) {
+  document.querySelectorAll("nav.tabs button").forEach(function (b) { b.classList.toggle("active", b.dataset.view === name); });
+  document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
+  document.getElementById("view-" + name).classList.add("active");
+}
 document.querySelectorAll("nav.tabs button").forEach(function (btn) {
-  btn.addEventListener("click", function () {
-    document.querySelectorAll("nav.tabs button").forEach(function (b) { b.classList.remove("active"); });
-    document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
-    btn.classList.add("active");
-    document.getElementById("view-" + btn.dataset.view).classList.add("active");
-  });
+  btn.addEventListener("click", function () { switchView(btn.dataset.view); });
 });
 document.getElementById("view-today").classList.add("active");
 
@@ -492,8 +505,23 @@ function renderToday() {
   document.getElementById("head-date").textContent =
     (now.getMonth() + 1) + "/" + now.getDate() + "（" + DAY_JA[dayKey] + "）";
 
-  // 予定
+  // お知らせ（週の終了・バックアップの経過日数）。タップで連携タブへ
   const iso = todayISO();
+  const notices = [];
+  if (!week && lastWeek) notices.push("先週のプランが終了しました。「レポートをコピー」してClaudeに今週のプランをもらいましょう。");
+  const hasData = week || events.length || Object.keys(habits).length;
+  if (hasData) {
+    const days = lastBackup ? Math.round((new Date(iso + "T00:00:00") - new Date(lastBackup + "T00:00:00")) / 86400000) : null;
+    if (days === null) notices.push("バックアップがまだありません。「レポートをコピー」で全データが自動で含まれます。");
+    else if (days >= 7) notices.push("最後のバックアップから" + days + "日経過。レポートをコピーしておきましょう。");
+  }
+  document.getElementById("today-notice").innerHTML =
+    notices.map(function (n) { return '<div class="notice">⚠️ ' + n + "</div>"; }).join("");
+  document.querySelectorAll("#today-notice .notice").forEach(function (el) {
+    el.addEventListener("click", function () { switchView("sync"); });
+  });
+
+  // 予定
   const evs = events.filter(function (e) { return e.date === iso; }).sort(function (a, b) { return (a.time || "").localeCompare(b.time || ""); });
   document.getElementById("today-events").innerHTML = evs.length
     ? evs.map(function (e) {
@@ -507,10 +535,11 @@ function renderToday() {
     : habitDefs.map(function (h) {
     const st = habits[h.id] || { streak: 0, last: null };
     const doneToday = st.last === iso;
+    const stk = effectiveStreak(st);
     return '<div class="check-item' + (doneToday ? " done" : "") + '">' +
-      '<input type="checkbox" data-habit="' + h.id + '"' + (doneToday ? " checked" : "") + ">" +
-      "<label>" + esc(h.name) + "</label>" +
-      '<span class="streak">' + (st.streak > 0 ? "🔥" + st.streak + "日" : "") + "</span></div>";
+      '<input type="checkbox" id="hb-' + h.id + '" data-habit="' + h.id + '"' + (doneToday ? " checked" : "") + ">" +
+      '<label for="hb-' + h.id + '">' + esc(h.name) + "</label>" +
+      '<span class="streak">' + (stk > 0 ? "🔥" + stk + "日" : "") + "</span></div>";
   }).join("");
   document.querySelectorAll("[data-habit]").forEach(function (cb) {
     cb.addEventListener("change", function () { toggleHabit(cb.dataset.habit, cb.checked); });
@@ -553,9 +582,11 @@ function todoRow(t, deletable) {
   const timeMeta = t.start
     ? "・" + t.start + (t.end ? "〜" + t.end : "")
     : (t.min ? "・" + t.min + "分" : "");
+  // idは「今日」「週間」両ビューに同じタスクが並ぶため、ビューごとに接頭辞を分ける
+  const pid = "cb-" + (deletable === true ? "w" : "t") + "-" + t.id;
   return '<div class="check-item' + (t.done ? " done" : "") + '">' +
-    '<input type="checkbox" data-todo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
-    "<label>" + esc(t.text) +
+    '<input type="checkbox" id="' + pid + '" data-todo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
+    '<label for="' + pid + '">' + esc(t.text) +
     ' <span class="meta">' + esc(t.cat || "") + timeMeta + "</span></label>" +
     daySel +
     (deletable === true ? '<button class="del-btn" data-tododel="' + t.id + '">✕</button>' : "") +
@@ -568,7 +599,7 @@ function bindDayPicks(root) {
       if (t) {
         t.day = sel.value || null;
         save("week", week);
-        renderToday(); renderWeek(); renderTT();
+        renderAll();
       }
     });
   });
@@ -581,7 +612,7 @@ function bindTodoDeletes(root) {
         slotManual[cell] = (slotManual[cell] || []).filter(function (id) { return String(id) !== b.dataset.tododel; });
       });
       save("week", week); save("slotManual", slotManual);
-      renderToday(); renderWeek(); renderTT();
+      renderAll();
     });
   });
 }
@@ -589,7 +620,7 @@ function bindTodoChecks(root) {
   root.querySelectorAll("[data-todo]").forEach(function (cb) {
     cb.addEventListener("change", function () {
       const t = week.todos.find(function (x) { return String(x.id) === cb.dataset.todo; });
-      if (t) { t.done = cb.checked; save("week", week); renderToday(); renderWeek(); }
+      if (t) { t.done = cb.checked; save("week", week); renderAll(); }
     });
   });
 }
@@ -609,7 +640,13 @@ function toggleHabit(id, on) {
   }
   habits[id] = st;
   save("habits", habits);
-  renderToday();
+  renderAll();
+}
+// 表示用ストリーク: 最後の実施が今日か昨日でなければ途切れている（0として表示する）
+function effectiveStreak(st) {
+  if (!st || !st.last || !st.streak) return 0;
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  return (st.last === todayISO() || st.last === isoOf(y)) ? st.streak : 0;
 }
 
 // ============ 週間 ============
@@ -699,13 +736,15 @@ function renderTT() {
           return '<td class="filled" data-cell="' + key + '"><span class="nm">' + esc(c.name) + "</span>" +
             (c.room ? '<span class="rm">' + esc(c.room) + "</span>" : "") + "</td>";
         }
-        const tasksHtml = (slotMap[key] || []).map(function (id) {
+        // セルの高さを保つため表示は2件まで（残りは「+n件」。コマをタップすれば全件見える）
+        const slotIds = slotMap[key] || [];
+        const tasksHtml = slotIds.slice(0, 2).map(function (id) {
           const t = week.todos.find(function (x) { return String(x.id) === String(id); });
           if (!t) return "";
           return '<label class="slot-task' + (t.done ? " done" : "") + '">' +
             '<input type="checkbox" data-slottodo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
             "<span>" + esc(t.text) + "</span></label>";
-        }).join("");
+        }).join("") + (slotIds.length > 2 ? '<span class="slot-more">＋' + (slotIds.length - 2) + "件</span>" : "");
         return '<td data-cell="' + key + '">' + tasksHtml + "</td>";
       }).join("") + "</tr>";
   }).join("");
@@ -722,7 +761,7 @@ function renderTT() {
     cb.addEventListener("click", function (e) { e.stopPropagation(); });
     cb.addEventListener("change", function () {
       const t = week.todos.find(function (x) { return String(x.id) === cb.dataset.slottodo; });
-      if (t) { t.done = cb.checked; save("week", week); renderTT(); renderToday(); renderWeek(); }
+      if (t) { t.done = cb.checked; save("week", week); renderAll(); }
     });
   });
 }
@@ -752,12 +791,12 @@ document.getElementById("slot-save").addEventListener("click", function () {
   document.querySelectorAll(".slot-pick:checked").forEach(function (cb) { ids.push(cb.value); });
   slotManual[editingSlot] = ids;
   save("slotManual", slotManual);
-  closeSlotModal(); renderTT();
+  closeSlotModal(); renderAll();
 });
 document.getElementById("slot-auto").addEventListener("click", function () {
   delete slotManual[editingSlot];
   save("slotManual", slotManual);
-  closeSlotModal(); renderTT();
+  closeSlotModal(); renderAll();
 });
 document.getElementById("slot-class").addEventListener("click", function () {
   closeSlotModal(); openTTModal(editingSlot);
@@ -780,13 +819,13 @@ document.getElementById("tt-save").addEventListener("click", function () {
   if (name) timetable[editingCell] = { name: name, room: room };
   else delete timetable[editingCell];
   save("timetable", timetable);
-  closeTTModal(); renderTT(); renderToday();
+  closeTTModal(); renderAll();
 });
 document.getElementById("tt-clear").addEventListener("click", function () {
   showConfirm("この授業を削除しますか？", function () {
     delete timetable[editingCell];
     save("timetable", timetable);
-    closeTTModal(); renderTT(); renderToday();
+    closeTTModal(); renderAll();
   });
 });
 document.getElementById("tt-cancel").addEventListener("click", closeTTModal);
@@ -843,7 +882,7 @@ function renderSelEvents() {
       ev.stopPropagation();
       showConfirm("この予定を削除しますか？", function () {
         events = events.filter(function (e) { return String(e.id) !== b.dataset.del; });
-        save("events", events); renderCal(); renderToday();
+        save("events", events); renderAll();
       });
     });
   });
@@ -877,14 +916,14 @@ document.getElementById("evm-save").addEventListener("click", function () {
   e.end = document.getElementById("evm-end").value;
   e.type = document.getElementById("evm-type").value;
   save("events", events);
-  closeEvModal(); renderCal(); renderToday();
+  closeEvModal(); renderAll();
   toast("予定を更新しました");
 });
 document.getElementById("evm-delete").addEventListener("click", function () {
   showConfirm("この予定を削除しますか？", function () {
     events = events.filter(function (x) { return String(x.id) !== String(editingEventId); });
     save("events", events);
-    closeEvModal(); renderCal(); renderToday();
+    closeEvModal(); renderAll();
   });
 });
 document.getElementById("evm-cancel").addEventListener("click", closeEvModal);
@@ -911,9 +950,9 @@ function renderHabitList() {
   const box = document.getElementById("habit-list");
   box.innerHTML = habitDefs.length
     ? habitDefs.map(function (h) {
-        const st = habits[h.id] || { streak: 0 };
+        const stk = effectiveStreak(habits[h.id]);
         return '<div class="check-item"><label style="flex:1">' + esc(h.name) +
-          ' <span class="meta">' + (st.streak > 0 ? "🔥" + st.streak + "日" : "") + "</span></label>" +
+          ' <span class="meta">' + (stk > 0 ? "🔥" + stk + "日" : "") + "</span></label>" +
           '<button class="del-btn" data-habitdel="' + h.id + '">✕</button></div>';
       }).join("")
     : '<div class="empty">習慣がありません。下から追加してください</div>';
@@ -923,7 +962,7 @@ function renderHabitList() {
         habitDefs = habitDefs.filter(function (h) { return h.id !== b.dataset.habitdel; });
         delete habits[b.dataset.habitdel];
         save("habitDefs", habitDefs); save("habits", habits);
-        renderHabitList(); renderToday();
+        renderHabitList(); renderAll();
       });
     });
   });
@@ -938,7 +977,7 @@ document.getElementById("habit-add").addEventListener("click", function () {
   habitDefs.push({ id: "h" + Date.now(), name: name });
   save("habitDefs", habitDefs);
   document.getElementById("habit-new").value = "";
-  renderHabitList(); renderToday();
+  renderHabitList(); renderAll();
 });
 document.getElementById("habit-close").addEventListener("click", function () {
   document.getElementById("habit-modal").classList.remove("show");
@@ -968,7 +1007,7 @@ document.getElementById("ev-add").addEventListener("click", function () {
   document.getElementById("ev-time").value = "";
   document.getElementById("ev-end").value = "";
   if (document.activeElement) document.activeElement.blur(); // キーボードを閉じてズームを戻す
-  renderCal(); renderToday();
+  renderAll();
   toast("予定を追加しました");
 });
 
@@ -1060,7 +1099,7 @@ document.getElementById("todo-add").addEventListener("click", function () {
   document.getElementById("todo-start").value = "";
   document.getElementById("todo-end").value = "";
   if (document.activeElement) document.activeElement.blur();
-  renderToday(); renderWeek(); renderTT();
+  renderAll();
   toast("タスクを追加しました");
 });
 
@@ -1107,7 +1146,7 @@ document.getElementById("import-btn").addEventListener("click", function () {
 
   // 週間プランの取り込み: {"weekStart", "goals", "todos"}
   if (plan.weekStart && Array.isArray(plan.todos)) {
-    // 現在の週を履歴へ
+    // 現在の週を履歴へ（全文は lastWeek にも退避してレポート再作成に備える）
     if (week && week.weekStart && week.weekStart !== plan.weekStart) {
       history.push({
         weekStart: week.weekStart,
@@ -1117,6 +1156,7 @@ document.getElementById("import-btn").addEventListener("click", function () {
       });
       if (history.length > 26) history = history.slice(-26);
       save("history", history);
+      lastWeek = week; save("lastWeek", lastWeek);
     }
     week = {
       weekStart: plan.weekStart,
@@ -1133,24 +1173,32 @@ document.getElementById("import-btn").addEventListener("click", function () {
 
   if (!results.length) { toast("weekStart+todos または events が必要です"); return; }
   document.getElementById("import-area").value = "";
-  renderToday(); renderWeek(); renderTT(); renderCal();
+  renderAll();
   toast(results.join("・") + "を取り込みました🎉");
 });
 
-document.getElementById("report-btn").addEventListener("click", function () {
-  if (!week) { toast("プランが未取り込みです"); return; }
-  const done = week.todos.filter(function (t) { return t.done; });
-  const undone = week.todos.filter(function (t) { return !t.done; });
-  let txt = "# 週次レポート（" + weekRangeText(week) + "）\n\n";
-  txt += "## 目標\n" + (week.goals.length ? week.goals.map(function (g) { return "- " + g; }).join("\n") : "- （未設定）") + "\n\n";
-  txt += "## 達成状況: " + done.length + "/" + week.todos.length + "（" + (week.todos.length ? Math.round(done.length / week.todos.length * 100) : 0) + "%）\n";
+function buildReport(w) {
+  const done = w.todos.filter(function (t) { return t.done; });
+  const undone = w.todos.filter(function (t) { return !t.done; });
+  const goals = w.goals || [];
+  let txt = "# 週次レポート（" + weekRangeText(w) + "）\n\n";
+  txt += "## 目標\n" + (goals.length ? goals.map(function (g) { return "- " + g; }).join("\n") : "- （未設定）") + "\n\n";
+  txt += "## 達成状況: " + done.length + "/" + w.todos.length + "（" + (w.todos.length ? Math.round(done.length / w.todos.length * 100) : 0) + "%）\n";
   txt += done.map(function (t) { return "- [x] " + (t.day ? DAY_JA[t.day] + "曜: " : "") + t.text; }).join("\n") + "\n";
   txt += undone.map(function (t) { return "- [ ] " + (t.day ? DAY_JA[t.day] + "曜: " : "") + t.text + "（未完了）"; }).join("\n") + "\n\n";
   txt += "## 習慣ストリーク\n" + habitDefs.map(function (h) {
-    const st = habits[h.id] || { streak: 0 };
-    return "- " + h.name + ": 連続" + st.streak + "日";
-  }).join("\n") + "\n";
-  copyText(txt, "レポートをコピーしました");
+    return "- " + h.name + ": 連続" + effectiveStreak(habits[h.id]) + "日";
+  }).join("\n") + "\n\n";
+  txt += "## アプリ全データ（バックアップ）\n";
+  txt += "以下をObsidianの Projects/my-pace-backup.md に保存してください（アプリの「貼り付けて復元」で復元できます）。\n\n";
+  txt += "```json\n" + backupJSON() + "\n```\n";
+  return txt;
+}
+document.getElementById("report-btn").addEventListener("click", function () {
+  const w = week || lastWeek; // 週が明けた直後は退避済みの先週分からレポートを作る
+  if (!w || !w.todos) { toast("プランが未取り込みです"); return; }
+  copyText(buildReport(w), "レポートをコピーしました");
+  markBackedUp();
 });
 
 document.getElementById("prompt-btn").addEventListener("click", function () {
@@ -1177,18 +1225,27 @@ document.getElementById("prompt-btn").addEventListener("click", function () {
     '1. まず上記の時間割・予定・通学等を踏まえ、各曜日の学習可能時間を見積もって提示すること（学習可能時間は固定値ではなく時間割から変動する）\n' +
     '2. 今週の目標（goals）は私に質問せず、Obsidianの記録（Projects/self-growth-roadmap.md・各分野のプラン・前週のレポート）と今週のToDo内容からあなたが考えて設定すること\n' +
     '3. Obsidianの Projects/self-growth-roadmap.md の優先順位・締切例外ルールを踏まえること\n' +
-    '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数\n' +
+    '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数。text は時間割のコマ内に表示されるため全角12文字以内の短い名前にすること（説明や補足を詰め込まない）\n' +
     '5. バイトのシフトやAIサークル勉強会（毎週水曜）などの予定を伝えられたら、events 配列でも出力すること（同じ取り込み欄でカレンダーに反映される）。typeは バイト/遊び/サークル/授業/大学/その他\n' +
     '6. 毎日の習慣の見直しを頼まれたら "habits": ["習慣名", ...] 形式でも出力できる（習慣リストが丸ごと置き換わる。同名の習慣は連続記録を引き継ぐ）\n\n' +
     '出力例:\n' +
-    '{\n  "weekStart": "2026-07-06",\n  "goals": ["Code Dojo HTMLユニット完了", "TOEFL単語300個"],\n  "todos": [\n    {"day": "mon", "text": "Code Dojo HTML-01〜02", "cat": "プログラミング", "min": 60},\n    {"day": null, "text": "TOEFL単語100個", "cat": "英語", "min": 90}\n  ],\n  "events": [\n    {"date": "2026-07-09", "time": "18:00", "end": "22:00", "title": "塾バイト", "type": "バイト"},\n    {"date": "2026-07-08", "time": "18:15", "end": "19:45", "title": "AIサークル勉強会", "type": "サークル"}\n  ]\n}';
+    '{\n  "weekStart": "2026-07-06",\n  "goals": ["Code Dojo HTMLユニット完了", "TOEFL単語300個"],\n  "todos": [\n    {"day": "mon", "text": "HTML-01〜02", "cat": "プログラミング", "min": 60},\n    {"day": null, "text": "TOEFL単語100個", "cat": "英語", "min": 90}\n  ],\n  "events": [\n    {"date": "2026-07-09", "time": "18:00", "end": "22:00", "title": "塾バイト", "type": "バイト"},\n    {"date": "2026-07-08", "time": "18:15", "end": "19:45", "title": "AIサークル勉強会", "type": "サークル"}\n  ]\n}';
   copyText(txt, "依頼文をコピーしました");
 });
 
+function backupJSON() {
+  return JSON.stringify({ timetable: timetable, events: events, week: week, habits: habits, history: history, slotManual: slotManual, habitDefs: habitDefs, lastWeek: lastWeek });
+}
+function markBackedUp() {
+  lastBackup = todayISO();
+  save("lastBackup", lastBackup);
+  renderToday(); // バックアップ経過のお知らせを消す
+}
 document.getElementById("backup-btn").addEventListener("click", function () {
-  const data = JSON.stringify({ timetable: timetable, events: events, week: week, habits: habits, history: history, slotManual: slotManual, habitDefs: habitDefs });
+  const data = backupJSON();
   document.getElementById("backup-area").value = data;
   copyText(data, "全データをコピーしました");
+  markBackedUp();
 });
 document.getElementById("restore-btn").addEventListener("click", function () {
   const raw = document.getElementById("backup-area").value.trim();
@@ -1202,16 +1259,52 @@ document.getElementById("restore-btn").addEventListener("click", function () {
     if (d.history) { history = d.history; save("history", history); }
     if (d.slotManual) { slotManual = d.slotManual; save("slotManual", slotManual); }
     if (d.habitDefs) { habitDefs = d.habitDefs; save("habitDefs", habitDefs); }
-    renderToday(); renderWeek(); renderTT(); renderCal();
+    if (d.lastWeek) { lastWeek = d.lastWeek; save("lastWeek", lastWeek); }
+    renderAll();
     toast("復元しました");
   } catch (e) { toast("データの形式が正しくありません"); }
 });
 
+// ============ 全体再描画・日付/週の切り替わり監視 ============
+function renderAll() { renderToday(); renderWeek(); renderTT(); renderCal(); }
+
+function weekEndISO(w) {
+  const e = new Date(w.weekStart + "T00:00:00");
+  e.setDate(e.getDate() + 6);
+  return isoOf(e);
+}
+// 週が終わっていたら自動で履歴化し、レポート用に lastWeek へ退避する
+function rolloverWeekIfNeeded() {
+  if (!week || !week.weekStart || !week.todos) return;
+  if (todayISO() <= weekEndISO(week)) return;
+  history.push({
+    weekStart: week.weekStart,
+    goals: week.goals || [],
+    done: week.todos.filter(function (t) { return t.done; }).length,
+    total: week.todos.length,
+  });
+  if (history.length > 26) history = history.slice(-26);
+  save("history", history);
+  lastWeek = week; save("lastWeek", lastWeek);
+  week = null; save("week", week);
+  slotManual = {}; save("slotManual", slotManual);
+}
+// PWAは開きっぱなしになるため、復帰時と1分ごとに日付の変化を監視して再描画する
+let renderedDate = todayISO();
+function checkDateChange() {
+  if (todayISO() === renderedDate) return;
+  renderedDate = todayISO();
+  rolloverWeekIfNeeded();
+  renderAll();
+}
+document.addEventListener("visibilitychange", function () { if (!document.hidden) checkDateChange(); });
+setInterval(checkDateChange, 60000);
+
 // ============ 起動 ============
-renderToday();
-renderWeek();
-renderTT();
-renderCal();
+rolloverWeekIfNeeded();
+renderAll();
+// ブラウザによるlocalStorage自動削除を防ぐ（対応環境のみ・失敗しても害なし）
+if (navigator.storage && navigator.storage.persist) { navigator.storage.persist().catch(function () {}); }
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
   navigator.serviceWorker.register("sw.js").catch(function () {});
 }
