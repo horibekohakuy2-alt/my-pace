@@ -397,7 +397,6 @@ ol.guide li { margin: 4px 0; }
     <div id="slot-list" style="max-height:40vh;overflow-y:auto;margin-top:6px"></div>
     <div class="btn-row">
       <button class="btn small ghost" id="slot-class">授業を登録</button>
-      <button class="btn small ghost" id="slot-auto">自動に戻す</button>
       <button class="btn small ghost" id="slot-cancel">キャンセル</button>
       <button class="btn small" id="slot-save">保存</button>
     </div>
@@ -741,9 +740,10 @@ function renderTT() {
         const tasksHtml = slotIds.slice(0, 2).map(function (id) {
           const t = week.todos.find(function (x) { return String(x.id) === String(id); });
           if (!t) return "";
-          return '<label class="slot-task' + (t.done ? " done" : "") + '">' +
+          // labelではなくdivにして、タスク名（span）のタップはチェックせず、セル＝空白タップ扱いにする
+          return '<div class="slot-task' + (t.done ? " done" : "") + '">' +
             '<input type="checkbox" data-slottodo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
-            "<span>" + esc(t.text) + "</span></label>";
+            "<span>" + esc(t.text) + "</span></div>";
         }).join("") + (slotIds.length > 2 ? '<span class="slot-more">＋' + (slotIds.length - 2) + "件</span>" : "");
         return '<td data-cell="' + key + '">' + tasksHtml + "</td>";
       }).join("") + "</tr>";
@@ -774,10 +774,12 @@ function openSlotModal(cellKey) {
   document.getElementById("slot-modal-title").textContent = DAY_JA[parts[0]] + "曜 " + parts[1] + "限の空きコマ";
   const current = (computeSlotMap()[cellKey] || []).map(String);
   const list = document.getElementById("slot-list");
-  if (!week || !week.todos || !week.todos.length) {
-    list.innerHTML = '<div class="empty">今週のプランが未取り込みです（連携タブから）</div>';
+  // 完了済みタスクは選択肢に出さない（未完了のみ）
+  const selectable = (week && week.todos) ? week.todos.filter(function (t) { return !t.done; }) : [];
+  if (!selectable.length) {
+    list.innerHTML = '<div class="empty">選べるタスクがありません（未完了のタスクなし／プラン未取り込み）</div>';
   } else {
-    list.innerHTML = week.todos.map(function (t) {
+    list.innerHTML = selectable.map(function (t) {
       const checked = current.indexOf(String(t.id)) !== -1;
       return '<label class="check-item' + (t.done ? " done" : "") + '" style="font-size:13px">' +
         '<input type="checkbox" class="slot-pick" value="' + t.id + '"' + (checked ? " checked" : "") + ">" +
@@ -790,11 +792,6 @@ document.getElementById("slot-save").addEventListener("click", function () {
   const ids = [];
   document.querySelectorAll(".slot-pick:checked").forEach(function (cb) { ids.push(cb.value); });
   slotManual[editingSlot] = ids;
-  save("slotManual", slotManual);
-  closeSlotModal(); renderAll();
-});
-document.getElementById("slot-auto").addEventListener("click", function () {
-  delete slotManual[editingSlot];
   save("slotManual", slotManual);
   closeSlotModal(); renderAll();
 });
