@@ -86,6 +86,7 @@ nav.tabs button.active { color: var(--accent); font-weight: bold; }
 .check-item.done label { text-decoration: line-through; color: var(--muted); }
 .check-item label { flex: 1; }
 .check-item .meta { font-size: 11px; color: var(--muted); }
+.check-item .note, .ev-note { display: block; font-size: 11px; color: var(--muted); font-weight: normal; line-height: 1.4; }
 .day-pick { font-size: 16px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: #fbfcfe; flex-shrink: 0; }
 .streak { font-size: 12px; color: var(--warn); font-weight: bold; white-space: nowrap; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
@@ -200,6 +201,7 @@ ol.guide li { margin: 4px 0; }
     <div class="card" id="week-todos"></div>
     <div class="card">
       <div class="form-row"><input id="todo-text" placeholder="タスクを追加（例: TOEFL単語50個）"></div>
+      <div class="form-row"><input id="todo-note" placeholder="詳細（任意）"></div>
       <div class="form-row">
         <select id="todo-day">
           <option value="">いつでも</option>
@@ -254,6 +256,7 @@ ol.guide li { margin: 4px 0; }
         <input id="ev-title" placeholder="予定名（例: バイト）" autocomplete="off">
         <div id="ev-suggest" class="suggest-box" hidden></div>
       </div>
+      <div class="form-row"><input id="ev-note" placeholder="詳細（任意）"></div>
       <div class="form-row">
         <input id="ev-time" type="time" title="開始">
         <span style="align-self:center" class="muted">〜</span>
@@ -348,6 +351,7 @@ ol.guide li { margin: 4px 0; }
     <h3 id="ev-modal-title">予定の編集</h3>
     <div class="form-row">
       <input id="evm-title" placeholder="予定名">
+      <input id="evm-note" placeholder="詳細（任意）">
       <div style="display:flex;gap:8px;align-items:center">
         <input id="evm-time" type="time" title="開始" style="flex:1">
         <span class="muted">〜</span>
@@ -524,7 +528,9 @@ function renderToday() {
   const evs = events.filter(function (e) { return e.date === iso; }).sort(function (a, b) { return (a.time || "").localeCompare(b.time || ""); });
   document.getElementById("today-events").innerHTML = evs.length
     ? evs.map(function (e) {
-        return '<div class="event-line"><span class="time">' + evTime(e) + "</span><span>" + esc(e.title) + '</span><span class="event-type">' + esc(e.type) + "</span></div>";
+        return '<div class="event-line"><span class="time">' + evTime(e) + '</span><span style="flex:1">' + esc(e.title) +
+          (e.note ? '<span class="ev-note">' + esc(e.note) + "</span>" : "") +
+          '</span><span class="event-type">' + esc(e.type) + "</span></div>";
       }).join("")
     : '<div class="empty">予定なし</div>';
 
@@ -586,7 +592,8 @@ function todoRow(t, deletable) {
   return '<div class="check-item' + (t.done ? " done" : "") + '">' +
     '<input type="checkbox" id="' + pid + '" data-todo="' + t.id + '"' + (t.done ? " checked" : "") + ">" +
     '<label for="' + pid + '">' + esc(t.text) +
-    ' <span class="meta">' + esc(t.cat || "") + timeMeta + "</span></label>" +
+    ' <span class="meta">' + esc(t.cat || "") + timeMeta + "</span>" +
+    (t.note ? '<span class="note">' + esc(t.note) + "</span>" : "") + "</label>" +
     daySel +
     (deletable === true ? '<button class="del-btn" data-tododel="' + t.id + '">✕</button>' : "") +
     "</div>";
@@ -867,7 +874,9 @@ function renderSelEvents() {
   const list = events.filter(function (e) { return e.date === selDate; }).sort(function (a, b) { return (a.time || "").localeCompare(b.time || ""); });
   document.getElementById("cal-sel-events").innerHTML = list.length
     ? list.map(function (e) {
-        return '<div class="event-line editable" data-edit="' + e.id + '"><span class="time">' + evTime(e) + "</span><span style=\"flex:1\">" + esc(e.title) + '</span><span class="event-type" style="color:' + typeColor(e.type) + ';border:1px solid ' + typeColor(e.type) + ';background:none">' + esc(e.type) + "</span>" +
+        return '<div class="event-line editable" data-edit="' + e.id + '"><span class="time">' + evTime(e) + "</span><span style=\"flex:1\">" + esc(e.title) +
+          (e.note ? '<span class="ev-note">' + esc(e.note) + "</span>" : "") +
+          '</span><span class="event-type" style="color:' + typeColor(e.type) + ';border:1px solid ' + typeColor(e.type) + ';background:none">' + esc(e.type) + "</span>" +
           '<button class="del-btn" data-del="' + e.id + '">✕</button></div>';
       }).join("") + '<div class="muted small" style="margin-top:4px">予定をタップで編集</div>'
     : '<div class="empty">予定なし</div>';
@@ -894,6 +903,7 @@ function openEvModal(id) {
   const d = new Date(e.date + "T00:00:00");
   document.getElementById("ev-modal-title").textContent = (d.getMonth() + 1) + "/" + d.getDate() + " の予定を編集";
   document.getElementById("evm-title").value = e.title;
+  document.getElementById("evm-note").value = e.note || "";
   document.getElementById("evm-time").value = e.time || "";
   document.getElementById("evm-end").value = e.end || "";
   document.getElementById("evm-type").value = e.type || "その他";
@@ -909,6 +919,7 @@ document.getElementById("evm-save").addEventListener("click", function () {
   const title = document.getElementById("evm-title").value.trim();
   if (!title) { toast("予定名を入力してください"); return; }
   e.title = title;
+  e.note = document.getElementById("evm-note").value.trim();
   e.time = document.getElementById("evm-time").value;
   e.end = document.getElementById("evm-end").value;
   e.type = document.getElementById("evm-type").value;
@@ -997,10 +1008,12 @@ document.getElementById("ev-add").addEventListener("click", function () {
     time: document.getElementById("ev-time").value,
     end: document.getElementById("ev-end").value,
     title: title,
+    note: document.getElementById("ev-note").value.trim(),
     type: document.getElementById("ev-type").value,
   });
   save("events", events);
   document.getElementById("ev-title").value = "";
+  document.getElementById("ev-note").value = "";
   document.getElementById("ev-time").value = "";
   document.getElementById("ev-end").value = "";
   if (document.activeElement) document.activeElement.blur(); // キーボードを閉じてズームを戻す
@@ -1042,6 +1055,7 @@ function renderSuggest() {
         evTitleInput.value = e.title;
         document.getElementById("ev-time").value = e.time || "";
         document.getElementById("ev-end").value = e.end || "";
+        document.getElementById("ev-note").value = e.note || "";
         document.getElementById("ev-type").value = e.type || "その他";
       }
       suggestBox.hidden = true;
@@ -1077,6 +1091,7 @@ document.getElementById("todo-add").addEventListener("click", function () {
     id: Date.now(),
     day: document.getElementById("todo-day").value || null,
     text: text,
+    note: document.getElementById("todo-note").value.trim(),
     cat: "",
     min: 0,
     start: "",
@@ -1092,6 +1107,7 @@ document.getElementById("todo-add").addEventListener("click", function () {
   week.todos.push(todo);
   save("week", week);
   document.getElementById("todo-text").value = "";
+  document.getElementById("todo-note").value = "";
   document.getElementById("todo-min").value = "";
   document.getElementById("todo-start").value = "";
   document.getElementById("todo-end").value = "";
@@ -1123,6 +1139,7 @@ document.getElementById("import-btn").addEventListener("click", function () {
         time: ev.time || "",
         end: ev.end || "",
         title: ev.title,
+        note: ev.note || "",
         type: ev.type || "その他",
       });
       added++;
@@ -1159,7 +1176,7 @@ document.getElementById("import-btn").addEventListener("click", function () {
       weekStart: plan.weekStart,
       goals: plan.goals || [],
       todos: plan.todos.map(function (t, i) {
-        return { id: t.id || (Date.now() + 1000 + i), day: t.day || null, text: t.text || "", cat: t.cat || "", min: t.min || 0, start: t.start || "", end: t.end || "", done: !!t.done };
+        return { id: t.id || (Date.now() + 1000 + i), day: t.day || null, text: t.text || "", note: t.note || "", cat: t.cat || "", min: t.min || 0, start: t.start || "", end: t.end || "", done: !!t.done };
       }),
     };
     save("week", week);
@@ -1222,11 +1239,11 @@ document.getElementById("prompt-btn").addEventListener("click", function () {
     '1. まず上記の時間割・予定・通学等を踏まえ、各曜日の学習可能時間を見積もって提示すること（学習可能時間は固定値ではなく時間割から変動する）\n' +
     '2. 今週の目標（goals）は私に質問せず、Obsidianの記録（Projects/self-growth-roadmap.md・各分野のプラン・前週のレポート）と今週のToDo内容からあなたが考えて設定すること\n' +
     '3. Obsidianの Projects/self-growth-roadmap.md の優先順位・締切例外ルールを踏まえること\n' +
-    '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数。text は時間割のコマ内に表示されるため全角12文字以内の短い名前にすること（説明や補足を詰め込まない）\n' +
+    '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数。text は時間割のコマ内に表示されるため全角12文字以内の短い名前にすること。補足説明は任意の note フィールドに入れる（todos・eventsどちらも可。一覧に小さく表示される）\n' +
     '5. バイトのシフトやAIサークル勉強会（毎週水曜）などの予定を伝えられたら、events 配列でも出力すること（同じ取り込み欄でカレンダーに反映される）。typeは バイト/遊び/サークル/授業/大学/その他\n' +
     '6. 毎日の習慣の見直しを頼まれたら "habits": ["習慣名", ...] 形式でも出力できる（習慣リストが丸ごと置き換わる。同名の習慣は連続記録を引き継ぐ）\n\n' +
     '出力例:\n' +
-    '{\n  "weekStart": "2026-07-06",\n  "goals": ["Code Dojo HTMLユニット完了", "TOEFL単語300個"],\n  "todos": [\n    {"day": "mon", "text": "HTML-01〜02", "cat": "プログラミング", "min": 60},\n    {"day": null, "text": "TOEFL単語100個", "cat": "英語", "min": 90}\n  ],\n  "events": [\n    {"date": "2026-07-09", "time": "18:00", "end": "22:00", "title": "塾バイト", "type": "バイト"},\n    {"date": "2026-07-08", "time": "18:15", "end": "19:45", "title": "AIサークル勉強会", "type": "サークル"}\n  ]\n}';
+    '{\n  "weekStart": "2026-07-06",\n  "goals": ["Code Dojo HTMLユニット完了", "TOEFL単語300個"],\n  "todos": [\n    {"day": "mon", "text": "HTML-01〜02", "cat": "プログラミング", "min": 60, "note": "Code Dojoの1〜2章。詰まったらClaudeに質問"},\n    {"day": null, "text": "TOEFL単語100個", "cat": "英語", "min": 90}\n  ],\n  "events": [\n    {"date": "2026-07-09", "time": "18:00", "end": "22:00", "title": "塾バイト", "type": "バイト"},\n    {"date": "2026-07-08", "time": "18:15", "end": "19:45", "title": "AIサークル勉強会", "type": "サークル"}\n  ]\n}';
   copyText(txt, "依頼文をコピーしました");
 });
 
