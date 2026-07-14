@@ -491,8 +491,8 @@ function fallbackCopy(text, okMsg) {
 // ============ データ ============
 let timetable = load("timetable", {}); // {"mon-1": {name, room}} 時間割タブから入力する
 let events = load("events", []);          // [{id, date, time, title, type}]
-let week = load("week", null);            // {weekStart, goals[], todos[{id,day,text,cat,min,done}]}
-let habits = load("habits", {});          // {typing: {streak, last, prevStreak, prevLast}}
+let week = load("week", null);            // {weekStart, goals[], todos[{id,day,text,cat,min,done,doneDate}]} doneDateは実際にチェックした日
+let habits = load("habits", {});          // {typing: {streak, last, prevStreak, prevLast, log:{"2026-07-15":true}}} logは直近7日分のみ保持
 let history = load("history", []);
 let slotManual = load("slotManual", {});  // {"mon-2": [todoId, ...]} 空きコマの手動割り当て
 let habitDefs = load("habitDefs", null);  // [{id, name}] 毎日の習慣（編集可能）
@@ -637,27 +637,43 @@ function bindTodoChecks(root) {
   root.querySelectorAll("[data-todo]").forEach(function (cb) {
     cb.addEventListener("change", function () {
       const t = week.todos.find(function (x) { return String(x.id) === cb.dataset.todo; });
-      if (t) { t.done = cb.checked; save("week", week); renderAll(); }
+      if (t) { setTodoDone(t, cb.checked); save("week", week); renderAll(); }
     });
   });
+}
+// 完了日（doneDate）は「実際にチェックした曜日」をレポートに出すための記録。予定曜日（day）とは別物
+function setTodoDone(t, on) {
+  t.done = on;
+  if (on) t.doneDate = todayISO();
+  else delete t.doneDate;
 }
 function toggleHabit(id, on) {
   const iso = todayISO();
   const y = new Date(); y.setDate(y.getDate() - 1);
   const yesterISO = isoOf(y);
-  const st = habits[id] || { streak: 0, last: null };
+  const st = habits[id] || { streak: 0, last: null, log: {} };
+  if (!st.log) st.log = {};
   if (on) {
     st.prevStreak = st.streak; st.prevLast = st.last;
     if (st.last === yesterISO) st.streak += 1;
     else if (st.last !== iso) st.streak = 1;
     st.last = iso;
+    st.log[iso] = true;
   } else if (st.last === iso) {
     st.streak = st.prevStreak || 0;
     st.last = st.prevLast || null;
+    delete st.log[iso];
   }
+  pruneHabitLog(st.log);
   habits[id] = st;
   save("habits", habits);
   renderAll();
+}
+// 曜日別記録の保持期間は1週間。古いログはトグルのたびに間引く
+function pruneHabitLog(log) {
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 6);
+  const cutoffISO = isoOf(cutoff);
+  Object.keys(log).forEach(function (d) { if (d < cutoffISO) delete log[d]; });
 }
 // 表示用ストリーク: 最後の実施が今日か昨日でなければ途切れている（0として表示する）
 function effectiveStreak(st) {
@@ -779,7 +795,7 @@ function renderTT() {
     cb.addEventListener("click", function (e) { e.stopPropagation(); });
     cb.addEventListener("change", function () {
       const t = week.todos.find(function (x) { return String(x.id) === cb.dataset.slottodo; });
-      if (t) { t.done = cb.checked; save("week", week); renderAll(); }
+      if (t) { setTodoDone(t, cb.checked); save("week", week); renderAll(); }
     });
   });
 }
@@ -1202,6 +1218,19 @@ document.getElementById("import-btn").addEventListener("click", function () {
   toast(results.join("・") + "を取り込みました🎉");
 });
 
+// レポートの週（月曜始まり）について、habits[id].log を月〜日で並べる。未来の曜日は「-」
+function habitWeekLine(h, weekStart) {
+  const start = new Date(weekStart + "T00:00:00");
+  const today = todayISO();
+  const st = habits[h.id];
+  const marks = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map(function (dayKey, i) {
+    const d = new Date(start); d.setDate(d.getDate() + i);
+    const iso = isoOf(d);
+    if (iso > today) return DAY_JA[dayKey] + "-";
+    return DAY_JA[dayKey] + ((st && st.log && st.log[iso]) ? "✓" : "✗");
+  }).join(" ");
+  return "- " + h.name + ": " + marks;
+}
 function buildReport(w) {
   const done = w.todos.filter(function (t) { return t.done; });
   const undone = w.todos.filter(function (t) { return !t.done; });
@@ -1209,11 +1238,16 @@ function buildReport(w) {
   let txt = "# 週次レポート（" + weekRangeText(w) + "）\n\n";
   txt += "## 目標\n" + (goals.length ? goals.map(function (g) { return "- " + g; }).join("\n") : "- （未設定）") + "\n\n";
   txt += "## 達成状況: " + done.length + "/" + w.todos.length + "（" + (w.todos.length ? Math.round(done.length / w.todos.length * 100) : 0) + "%）\n";
-  txt += done.map(function (t) { return "- [x] " + (t.day ? DAY_JA[t.day] + "曜: " : "") + t.text; }).join("\n") + "\n";
+  // 完了行は「実際に完了した曜日」（doneDate）を出す。予定曜日（day）とは別
+  txt += done.map(function (t) {
+    const label = t.doneDate ? DAY_JA[DAYS[new Date(t.doneDate + "T00:00:00").getDay()]] + "曜完了" : "完了日不明";
+    return "- [x] " + label + ": " + t.text;
+  }).join("\n") + "\n";
   txt += undone.map(function (t) { return "- [ ] " + (t.day ? DAY_JA[t.day] + "曜: " : "") + t.text + "（未完了）"; }).join("\n") + "\n\n";
   txt += "## 習慣ストリーク\n" + habitDefs.map(function (h) {
     return "- " + h.name + ": 連続" + effectiveStreak(habits[h.id]) + "日";
   }).join("\n") + "\n\n";
+  txt += "## 習慣（曜日別）\n" + habitDefs.map(function (h) { return habitWeekLine(h, w.weekStart); }).join("\n") + "\n\n";
   if (memo.trim()) {
     txt += "## 今週のメモ（本人からの報告事項）\n" + memo.trim() + "\n\n";
   }
