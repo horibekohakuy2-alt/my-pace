@@ -264,7 +264,7 @@ ol.guide li { margin: 4px 0; }
       </div>
       <div class="form-row">
         <select id="ev-type">
-          <option>バイト</option><option>遊び</option><option>サークル</option><option>授業</option><option>大学</option><option>その他</option>
+          <option>バイト</option><option>遊び</option><option>サークル</option><option>授業</option><option>その他</option>
         </select>
         <button class="btn small" id="ev-add" style="white-space:nowrap">＋ 追加</button>
       </div>
@@ -368,7 +368,7 @@ ol.guide li { margin: 4px 0; }
         <input id="evm-end" type="time" title="終了" style="flex:1">
       </div>
       <select id="evm-type">
-        <option>バイト</option><option>遊び</option><option>サークル</option><option>授業</option><option>大学</option><option>その他</option>
+        <option>バイト</option><option>遊び</option><option>サークル</option><option>授業</option><option>その他</option>
       </select>
     </div>
     <div class="btn-row">
@@ -469,7 +469,7 @@ function toast(msg) {
 }
 function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function evTime(e) { return e.time ? e.time + (e.end ? "〜" + e.end : "") : "終日"; }
-const TYPE_COLORS = { "バイト": "#d97706", "遊び": "#ec4899", "サークル": "#16a34a", "授業": "#4f46e5", "大学": "#0891b2", "その他": "#6b7280" };
+const TYPE_COLORS = { "バイト": "#d97706", "遊び": "#ec4899", "サークル": "#16a34a", "授業": "#4f46e5", "その他": "#6b7280" };
 function typeColor(t) { return TYPE_COLORS[t] || "#6b7280"; }
 function addHour(t) {
   if (!t) return "";
@@ -491,6 +491,14 @@ function fallbackCopy(text, okMsg) {
 // ============ データ ============
 let timetable = load("timetable", {}); // {"mon-1": {name, room}} 時間割タブから入力する
 let events = load("events", []);          // [{id, date, time, title, type}]
+// 旧ラベル「大学」は「授業」に統合（2026-07-15）。選択肢に無いtypeが残ると編集モーダルの
+// selectが空文字になり、保存で type が消えるため、起動・取り込み・復元の全経路で変換する
+function normalizeEventTypes(list) {
+  let changed = false;
+  (list || []).forEach(function (e) { if (e.type === "大学") { e.type = "授業"; changed = true; } });
+  return changed;
+}
+if (normalizeEventTypes(events)) save("events", events);
 let week = load("week", null);            // {weekStart, goals[], todos[{id,day,text,cat,min,done,doneDate}]} doneDateは実際にチェックした日
 let habits = load("habits", {});          // {typing: {streak, last, prevStreak, prevLast, log:{"2026-07-15":true}}} logは直近7日分のみ保持
 let history = load("history", []);
@@ -1056,6 +1064,8 @@ document.getElementById("ev-time").addEventListener("change", function () {
 // ---- 予定名のオートコンプリート（過去の同名予定から時刻・ラベルを引き継ぐ） ----
 const evTitleInput = document.getElementById("ev-title");
 const suggestBox = document.getElementById("ev-suggest");
+// 候補は繰り返し登録する予定だけ。遊び・授業などは同名・同時刻の再登場が少なく邪魔になる
+const SUGGEST_TYPES = ["バイト", "サークル"];
 function renderSuggest() {
   const q = evTitleInput.value.trim();
   const seen = {};
@@ -1063,6 +1073,7 @@ function renderSuggest() {
   events.slice()
     .sort(function (a, b) { return b.date.localeCompare(a.date); }) // 新しい予定を優先
     .forEach(function (e) {
+      if (SUGGEST_TYPES.indexOf(e.type) === -1) return;
       if (seen[e.title]) return;
       if (q && e.title.indexOf(q) === -1) return; // 未入力なら最近の予定名をそのまま候補に（iOS標準カレンダー風）
       seen[e.title] = true;
@@ -1074,9 +1085,9 @@ function renderSuggest() {
   }).join("");
   suggestBox.hidden = false;
   suggestBox.querySelectorAll("[data-sg]").forEach(function (item) {
-    // iPhoneのタップで確実に反応するようpointerdownで拾う（blurより先に発火する）
-    item.addEventListener("pointerdown", function (ev) {
-      ev.preventDefault();
+    // pointerdown+preventDefault はボックス内スクロールを殺すため使わない。
+    // clickはスクロール操作では発火しないので、タップ＝選択・なぞる＝スクロールが自然に分かれる
+    item.addEventListener("click", function () {
       const e = events.find(function (x) { return String(x.id) === item.dataset.sg; });
       if (e) {
         evTitleInput.value = e.title;
@@ -1091,7 +1102,10 @@ function renderSuggest() {
 }
 evTitleInput.addEventListener("input", renderSuggest);
 evTitleInput.addEventListener("focus", renderSuggest);
-evTitleInput.addEventListener("blur", function () { setTimeout(function () { suggestBox.hidden = true; }, 150); });
+// blurで消すとスクロール中に候補が消え、clickも間に合わない。「枠の外をタップしたら消す」方式にする
+document.addEventListener("pointerdown", function (ev) {
+  if (ev.target !== evTitleInput && !suggestBox.contains(ev.target)) suggestBox.hidden = true;
+});
 
 // ---- ToDoの手動追加 ----
 function mondayISO() {
@@ -1171,6 +1185,7 @@ document.getElementById("import-btn").addEventListener("click", function () {
       });
       added++;
     });
+    normalizeEventTypes(events);
     save("events", events);
     results.push("予定" + added + "件");
   }
@@ -1288,7 +1303,7 @@ document.getElementById("prompt-btn").addEventListener("click", function () {
     '2. 今週の目標（goals）は私に質問せず、Obsidianの記録（Projects/self-growth-roadmap.md・各分野のプラン・前週のレポート）と今週のToDo内容からあなたが考えて設定すること\n' +
     '3. Obsidianの Projects/self-growth-roadmap.md の優先順位・締切例外ルールを踏まえること\n' +
     '4. 最後に以下のJSON形式で出力すること。day は "mon"〜"sun"、曜日固定でないものは null（いつでも枠）。cat は分野名、min は目安分数。text は時間割のコマ内に表示されるため全角12文字以内の短い名前にすること。補足説明は任意の note フィールドに入れる（todos・eventsどちらも可。一覧に小さく表示される）\n' +
-    '5. バイトのシフトやAIサークル勉強会（毎週水曜）などの予定を伝えられたら、events 配列でも出力すること（同じ取り込み欄でカレンダーに反映される）。typeは バイト/遊び/サークル/授業/大学/その他\n' +
+    '5. バイトのシフトやAIサークル勉強会（毎週水曜）などの予定を伝えられたら、events 配列でも出力すること（同じ取り込み欄でカレンダーに反映される）。typeは バイト/遊び/サークル/授業/その他\n' +
     '6. 毎日の習慣の見直しを頼まれたら "habits": ["習慣名", ...] 形式でも出力できる（習慣リストが丸ごと置き換わる。同名の習慣は連続記録を引き継ぐ）\n' +
     '7. タスクは1件60分以内の単位に分割すること（例: HTML-04〜05 は「HTML-04」と「HTML-05」の2タスクに分ける）\n' +
     '8. プラン作成の前に「今週のバイトのシフト」を私に必ず質問すること。4・6・10・12月の最初の3週間は「今期の大学課題は何曜日に何個あるか」も質問し、課題は1件60分・catは「大学」で該当曜日のタスクにすること\n\n' +
@@ -1317,7 +1332,7 @@ document.getElementById("restore-btn").addEventListener("click", function () {
   try {
     const d = JSON.parse(raw);
     if (d.timetable) { timetable = d.timetable; save("timetable", timetable); }
-    if (d.events) { events = d.events; save("events", events); }
+    if (d.events) { events = d.events; normalizeEventTypes(events); save("events", events); }
     if (d.week) { week = d.week; save("week", week); }
     if (d.habits) { habits = d.habits; save("habits", habits); }
     if (d.history) { history = d.history; save("history", history); }
