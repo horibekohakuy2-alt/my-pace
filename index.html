@@ -98,6 +98,17 @@ nav.tabs button.active { color: var(--accent); font-weight: bold; }
 /* ---- week ---- */
 .goal-line { padding: 4px 0; font-size: 14px; }
 .day-group h3 { font-size: 13px; color: var(--accent); margin: 10px 0 2px; }
+/* 曜日グループの折りたたみ（当日以外は閉じてスクロールを減らす） */
+details.day-group > summary {
+  font-size: 13px; color: var(--accent); font-weight: bold;
+  margin: 10px 0 2px; padding: 4px 2px; list-style: none;
+  display: flex; align-items: center; gap: 6px;
+}
+details.day-group > summary::-webkit-details-marker { display: none; }
+details.day-group > summary::before { content: "▶"; font-size: 9px; transition: transform 0.15s; }
+details.day-group[open] > summary::before { transform: rotate(90deg); }
+details.day-group > summary .cnt { color: var(--muted); font-weight: normal; font-size: 12px; margin-left: auto; }
+details.day-group.today > summary { background: var(--accent-soft); border-radius: 8px; padding: 4px 8px; }
 
 /* ---- timetable ---- */
 table.tt { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -691,6 +702,9 @@ function effectiveStreak(st) {
 }
 
 // ============ 週間 ============
+// 曜日グループの開閉状態（本人が開いた曜日を再描画後も保つ。保存はせず、起動時は当日基準）
+let weekOpen = {};
+
 function weekRangeText(w) {
   if (!w) return "";
   const s = new Date(w.weekStart + "T00:00:00");
@@ -714,17 +728,32 @@ function renderWeek() {
   document.getElementById("week-progress").style.width = Math.round(done / week.todos.length * 100) + "%";
   document.getElementById("week-progress-text").textContent = done + " / " + week.todos.length + " 完了（" + Math.round(done / week.todos.length * 100) + "%）";
 
+  const todayKey = DAYS[new Date().getDay()];
   let html = "";
   ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].forEach(function (d) {
     const list = week.todos.filter(function (t) { return t.day === d; });
     if (!list.length) return;
-    html += '<div class="day-group"><h3>' + DAY_JA[d] + "曜</h3>" + list.map(function (t) { return todoRow(t, true); }).join("") + "</div>";
+    // 当日は開く。それ以外は閉じる（本人が開いた曜日は weekOpen で開いたまま保つ）
+    const isToday = d === todayKey;
+    const open = weekOpen[d] === undefined ? isToday : weekOpen[d];
+    const doneCnt = list.filter(function (t) { return t.done; }).length;
+    html += '<details class="day-group' + (isToday ? " today" : "") + '" data-daygroup="' + d + '"' + (open ? " open" : "") + ">" +
+      "<summary>" + DAY_JA[d] + "曜" + (isToday ? "（今日）" : "") +
+      '<span class="cnt">' + doneCnt + " / " + list.length + "</span></summary>" +
+      list.map(function (t) { return todoRow(t, true); }).join("") + "</details>";
   });
   const anytime = week.todos.filter(function (t) { return !t.day; });
   if (anytime.length) {
-    html += '<div class="day-group"><h3>いつでも枠</h3>' + anytime.map(function (t) { return todoRow(t, true); }).join("") + "</div>";
+    // いつでも枠は曜日に紐づかないので常に開いておく
+    const doneCnt = anytime.filter(function (t) { return t.done; }).length;
+    html += '<details class="day-group" open><summary>いつでも枠' +
+      '<span class="cnt">' + doneCnt + " / " + anytime.length + "</span></summary>" +
+      anytime.map(function (t) { return todoRow(t, true); }).join("") + "</details>";
   }
   box.innerHTML = html;
+  box.querySelectorAll("[data-daygroup]").forEach(function (el) {
+    el.addEventListener("toggle", function () { weekOpen[el.dataset.daygroup] = el.open; });
+  });
   bindTodoChecks(box);
   bindTodoDeletes(box);
   bindDayPicks(box);
@@ -1374,6 +1403,7 @@ let renderedDate = todayISO();
 function checkDateChange() {
   if (todayISO() === renderedDate) return;
   renderedDate = todayISO();
+  weekOpen = {}; // 日付が変われば「当日を開く」基準に戻す
   rolloverWeekIfNeeded();
   renderAll();
 }
