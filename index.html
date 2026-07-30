@@ -708,8 +708,9 @@ let weekOpen = {};
 const DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 // 曜日・やり残し・いつでも枠をすべて同じ経路で描く（描画の分岐を1本に保つ）
-function weekGroupHtml(key, label, list, cls) {
-  const open = weekOpen[key] === undefined ? true : weekOpen[key];
+// defaultOpen: 本人がまだ触っていないグループを開くかどうか（当日とやり残しだけ true）
+function weekGroupHtml(key, label, list, cls, defaultOpen) {
+  const open = weekOpen[key] === undefined ? !!defaultOpen : weekOpen[key];
   const remain = list.filter(function (t) { return !t.done; }).length;
   return '<details class="day-group' + (cls ? " " + cls : "") + '" data-daygroup="' + key + '"' + (open ? " open" : "") + ">" +
     "<summary>" + label +
@@ -746,14 +747,8 @@ function renderWeek() {
   const inWeek = iso >= week.weekStart && iso <= weekEndISO(week);
   const todayKey = inWeek ? DAYS[new Date().getDay()] : null;
 
-  // 今日を先頭に回し、過ぎた曜日は後ろへ（リレー順）
-  let order = DAY_ORDER;
-  let pastDays = [];
-  if (todayKey) {
-    const i = DAY_ORDER.indexOf(todayKey);
-    order = DAY_ORDER.slice(i).concat(DAY_ORDER.slice(0, i));
-    pastDays = DAY_ORDER.slice(0, i);
-  }
+  // 過ぎた曜日（やり残しの抽出にだけ使う。表示は月〜日の固定順）
+  const pastDays = todayKey ? DAY_ORDER.slice(0, DAY_ORDER.indexOf(todayKey)) : [];
 
   // 過ぎた曜日の未完了は「やり残し」へ移す（複製せず移動。ID重複によるチェックの誤作動を避ける）
   const overdue = week.todos.filter(function (t) {
@@ -762,16 +757,17 @@ function renderWeek() {
   const movedIds = {};
   overdue.forEach(function (t) { movedIds[String(t.id)] = true; });
 
+  // 並び順は やり残し → 月〜日 → いつでも枠。既定で開くのは当日とやり残しだけ
   let html = "";
-  const anytime = week.todos.filter(function (t) { return !t.day; });
-  if (anytime.length) html += weekGroupHtml("anytime", "いつでも枠", anytime, "");
-  if (overdue.length) html += weekGroupHtml("overdue", "⚠ やり残し", overdue, "overdue");
-  order.forEach(function (d) {
+  if (overdue.length) html += weekGroupHtml("overdue", "⚠ やり残し", overdue, "overdue", true);
+  DAY_ORDER.forEach(function (d) {
     const list = week.todos.filter(function (t) { return t.day === d && !movedIds[String(t.id)]; });
     if (!list.length) return;
     const isToday = d === todayKey;
-    html += weekGroupHtml(d, DAY_JA[d] + "曜" + (isToday ? "（今日）" : ""), list, isToday ? "today" : "");
+    html += weekGroupHtml(d, DAY_JA[d] + "曜" + (isToday ? "（今日）" : ""), list, isToday ? "today" : "", isToday);
   });
+  const anytime = week.todos.filter(function (t) { return !t.day; });
+  if (anytime.length) html += weekGroupHtml("anytime", "いつでも枠", anytime, "", false);
   box.innerHTML = html;
   box.querySelectorAll("[data-daygroup]").forEach(function (el) {
     el.addEventListener("toggle", function () { weekOpen[el.dataset.daygroup] = el.open; });
